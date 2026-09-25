@@ -12,7 +12,7 @@ import BotaoDeslizar from "@/components/BotaoDeslizar";
 import MaisCorridaAtiva from "@/components/MaisCorridaAtiva";
 import { Text } from "@/components/common/Texto";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-// CODEX: 40 linhas alteradas; destaca o horário limite de chegada antes do embarque. Remover após validação.
+// CODEX: 27 linhas alteradas; move o prazo de chegada para a folha inferior. Remover após validação.
 import type {
   AcaoCorrida,
   PassageiroDaCorrida,
@@ -142,11 +142,14 @@ export default function NavegacaoAtiva({
     () => [
       88 + insets.bottom,
       Math.min(
-        250 + (metodoPagamento ? 42 : 0) + insets.bottom,
+        250 +
+          (metodoPagamento ? 42 : 0) +
+          (status === "aceita" ? 44 : 0) +
+          insets.bottom,
         alturaTela * 0.48,
       ),
     ],
-    [alturaTela, insets.bottom, metodoPagamento],
+    [alturaTela, insets.bottom, metodoPagamento, status],
   );
   const [alturaFolha, setAlturaFolha] = useState(pontosDaFolha[1]);
   const [navegando, setNavegando] = useState(false);
@@ -370,15 +373,6 @@ export default function NavegacaoAtiva({
             </>
           )}
         </TouchableOpacity>
-
-        {status === "aceita" && horarioChegada && (
-          <View style={styles.avisoLimiteChegada}>
-            <Ionicons name="time-outline" size={16} color="#725500" />
-            <Text style={styles.avisoLimiteChegadaTexto}>
-              Chegue antes de: {horarioChegada}
-            </Text>
-          </View>
-        )}
       </View>
 
       {/* velocímetro */}
@@ -444,6 +438,15 @@ export default function NavegacaoAtiva({
               <View style={styles.espacoMenuCorrida} />
             )}
           </View>
+
+          {status === "aceita" && horarioChegada && (
+            <View style={styles.avisoLimiteChegada}>
+              <Ionicons name="time-outline" size={16} color="#725500" />
+              <Text style={styles.avisoLimiteChegadaTexto}>
+                Chegue antes de: {horarioChegada}
+              </Text>
+            </View>
+          )}
 
           {metodoPagamento && (
             <View style={styles.chipPagamento}>
