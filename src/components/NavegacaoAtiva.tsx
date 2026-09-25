@@ -1,17 +1,22 @@
 // Navegação turn-by-turn no estilo 99 (banner de manobra, ponto no mapa com
-// direção, velocímetro, ETA). Só entra em cena depois que o motorista dá
-// "Iniciar corrida" (status em_andamento) — antes disso (a caminho do
-// embarque, aguardando o passageiro) a tela continua sendo o
-// CorridaEmAndamento de sempre. Tudo abaixo funciona de verdade (rota real
-// via Google Directions, posição/velocidade reais do GPS). Duas coisas do
+// direção, velocímetro, ETA). Entra em cena depois do aceite para guiar até
+// o embarque e volta a guiar até o destino quando a corrida é iniciada.
+// Tudo abaixo funciona de verdade (rota real via Google Directions,
+// posição/velocidade reais do GPS). Duas coisas do
 // espelho do 99 ficaram de fora por dependerem de trabalho maior, sem ter
 // pra onde "fingir" no frontend:
 // - Voz guiando as manobras (precisa de TTS + lógica de quando anunciar).
 // - "Confirmar parada" pra corrida com parada intermediária: o modelo de
 //   dados da corrida hoje não tem parada — só origem e destino.
 import BotaoDeslizar from "@/components/BotaoDeslizar";
+import MaisCorridaAtiva from "@/components/MaisCorridaAtiva";
 import { Text } from "@/components/common/Texto";
-import type { AcaoCorrida, PassageiroDaCorrida } from "@/components/CorridaEmAndamento";
+import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
+// CODEX: 377 linhas alteradas neste arquivo; restringe o gesto à alça, adiciona o menu e preserva a navegação.
+import type {
+  AcaoCorrida,
+  PassageiroDaCorrida,
+} from "@/components/CorridaEmAndamento";
 import {
   anguloDaManobra,
   formatarDistancia,
@@ -20,14 +25,16 @@ import {
 import type { Coordenada } from "@/domain/rotaDaCorrida";
 import { useNavegacaoDaCorrida } from "@/hooks/useNavegacaoDaCorrida";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
   Linking,
+  Platform,
   Share,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import MapView, {
@@ -39,24 +46,47 @@ import MapView, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface Props {
+  status: "aceita" | "em_andamento";
   codigoCorrida: string;
   alvo: Coordenada | null;
   enderecoAlvo?: string | null;
   passageiro?: PassageiroDaCorrida | null;
+  origem?: string | null;
+  destino?: string | null;
   metodoPagamento?: string | null;
   minutos?: number | null;
   distanciaKm?: number | null;
   ocupado?: boolean;
   onAvancar: (acao: AcaoCorrida) => void;
+  onCancelar: (motivo: string) => Promise<boolean>;
 }
 
-const PASSO = { acao: "finalizar" as AcaoCorrida, rotulo: "Finalizar corrida", cor: "#2F6BFF" };
+const PASSOS: Record<
+  Props["status"],
+  { acao: AcaoCorrida; rotulo: string; cor: string }
+> = {
+  aceita: {
+    acao: "cheguei",
+    rotulo: "Cheguei no embarque",
+    cor: "#17A673",
+  },
+  em_andamento: {
+    acao: "finalizar",
+    rotulo: "Finalizar corrida",
+    cor: "#2F6BFF",
+  },
+};
 
 const ROTULO_PAGAMENTO: Record<string, string> = {
   dinheiro: "dinheiro",
   cartao: "cartão",
   pix: "Pix",
 };
+
+const ZOOM_NAVEGACAO_ANDROID = 18;
+const ALTITUDE_NAVEGACAO_IOS = 350;
+const ZOOM_INICIAL_ANDROID = 16;
+const ALTITUDE_INICIAL_IOS = 700;
 
 // distância no traçado até achar o ponto mais próximo da posição atual —
 // o resto da polyline (o que já foi percorrido) não é desenhado
@@ -80,68 +110,117 @@ function trecoRestante(polyline: Coordenada[], posicao: Coordenada | null) {
 }
 
 export default function NavegacaoAtiva({
+  status,
   codigoCorrida,
   alvo,
   enderecoAlvo,
   passageiro,
+  origem,
+  destino,
   metodoPagamento,
   minutos,
   distanciaKm,
   ocupado = false,
   onAvancar,
+  onCancelar,
 }: Props) {
+  const passo = PASSOS[status];
   const insets = useSafeAreaInsets();
+  const { height: alturaTela } = useWindowDimensions();
   const mapRef = useRef<MapView>(null);
+  const mapaPronto = useRef(false);
   const primeiraPosicao = useRef(true);
+  const ultimaPosicao = useRef<Coordenada | null>(null);
+  const ultimoHeading = useRef(0);
   const [posicao, setPosicao] = useState<Coordenada | null>(null);
-  const [heading, setHeading] = useState(0);
   const [velocidadeKmh, setVelocidadeKmh] = useState<number | null>(null);
   // a folha varia de altura (contador de espera, chip de pagamento...), então
   // o velocímetro e os botões laterais acompanham a altura medida de verdade
   // em vez de um valor fixo — senão ou sobra vão embaixo da folha ou fica
   // um vão grande quando ela é mais baixa
-  const [alturaFolha, setAlturaFolha] = useState(0);
+  const pontosDaFolha = useMemo(
+    () => [
+      88 + insets.bottom,
+      Math.min(
+        250 + (metodoPagamento ? 42 : 0) + insets.bottom,
+        alturaTela * 0.48,
+      ),
+    ],
+    [alturaTela, insets.bottom, metodoPagamento],
+  );
+  const [alturaFolha, setAlturaFolha] = useState(pontosDaFolha[1]);
   const [navegando, setNavegando] = useState(false);
+  const [maisVisivel, setMaisVisivel] = useState(false);
+
+  const aoMudarFolha = useCallback(
+    (indice: number) =>
+      setAlturaFolha(pontosDaFolha[indice] ?? pontosDaFolha[1]),
+    [pontosDaFolha],
+  );
 
   const { rota, passoAtual, distanciaAteManobra } = useNavegacaoDaCorrida(
     alvo,
     posicao,
   );
 
-  const onUserLocationChange = useCallback((event: UserLocationChangeEvent) => {
-    const { coordinate } = event.nativeEvent;
-    if (!coordinate) return;
+  const centralizarNavegacao = useCallback(
+    (centro: Coordenada, direcao: number, duracao: number) => {
+      mapRef.current?.animateCamera(
+        {
+          center: centro,
+          heading: direcao,
+          pitch: 55,
+          zoom: ZOOM_NAVEGACAO_ANDROID,
+          altitude: ALTITUDE_NAVEGACAO_IOS,
+        },
+        { duration: duracao },
+      );
+    },
+    [],
+  );
 
-    const nova = {
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-    };
-    setPosicao(nova);
+  const onMapReady = useCallback(() => {
+    mapaPronto.current = true;
+    const centro = ultimaPosicao.current ?? alvo;
 
-    const novoHeading =
-      typeof coordinate.heading === "number" && coordinate.heading >= 0
-        ? coordinate.heading
-        : undefined;
-    if (novoHeading !== undefined) setHeading(novoHeading);
+    if (centro) {
+      centralizarNavegacao(centro, ultimoHeading.current, 0);
+    }
+  }, [alvo, centralizarNavegacao]);
 
-    setVelocidadeKmh(
-      typeof coordinate.speed === "number" && coordinate.speed >= 0
-        ? coordinate.speed * 3.6
-        : null,
-    );
+  const onUserLocationChange = useCallback(
+    (event: UserLocationChangeEvent) => {
+      const { coordinate } = event.nativeEvent;
+      if (!coordinate) return;
 
-    mapRef.current?.animateCamera(
-      {
-        center: nova,
-        heading: novoHeading ?? heading,
-        pitch: 55,
-        zoom: 18,
-      },
-      { duration: primeiraPosicao.current ? 0 : 600 },
-    );
-    primeiraPosicao.current = false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      const nova = {
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+      };
+      ultimaPosicao.current = nova;
+      setPosicao(nova);
+
+      if (typeof coordinate.heading === "number" && coordinate.heading >= 0) {
+        ultimoHeading.current = coordinate.heading;
+      }
+
+      setVelocidadeKmh(
+        typeof coordinate.speed === "number" && coordinate.speed >= 0
+          ? coordinate.speed * 3.6
+          : null,
+      );
+
+      if (mapaPronto.current) {
+        centralizarNavegacao(
+          nova,
+          ultimoHeading.current,
+          primeiraPosicao.current ? 0 : 600,
+        );
+        primeiraPosicao.current = false;
+      }
+    },
+    [centralizarNavegacao],
+  );
 
   const polylineRestante = useMemo(
     () => trecoRestante(rota?.polyline ?? [], posicao),
@@ -149,7 +228,8 @@ export default function NavegacaoAtiva({
   );
 
   const distanciaTexto = useMemo(() => {
-    const metros = rota?.distancia_m ?? (distanciaKm ? distanciaKm * 1000 : null);
+    const metros =
+      rota?.distancia_m ?? (distanciaKm ? distanciaKm * 1000 : null);
     return metros !== null ? formatarDistancia(metros) : "--";
   }, [rota, distanciaKm]);
 
@@ -158,10 +238,17 @@ export default function NavegacaoAtiva({
     return typeof minutos === "number" ? minutos : null;
   }, [rota, minutos]);
 
+  const [agora, setAgora] = useState(() => Date.now());
+
+  useEffect(() => {
+    const intervalo = setInterval(() => setAgora(Date.now()), 30_000);
+    return () => clearInterval(intervalo);
+  }, []);
+
   const horarioChegada = useMemo(() => {
     if (minutosRestantes === null) return null;
-    return formatarHorario(new Date(Date.now() + minutosRestantes * 60_000));
-  }, [minutosRestantes]);
+    return formatarHorario(new Date(agora + minutosRestantes * 60_000));
+  }, [agora, minutosRestantes]);
 
   const ligar = () => {
     if (!passageiro?.telefone) return;
@@ -195,10 +282,23 @@ export default function NavegacaoAtiva({
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
-        provider={PROVIDER_GOOGLE}
+        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+        initialCamera={
+          alvo
+            ? {
+                center: alvo,
+                heading: 0,
+                pitch: 0,
+                zoom: ZOOM_INICIAL_ANDROID,
+                altitude: ALTITUDE_INICIAL_IOS,
+              }
+            : undefined
+        }
+        userInterfaceStyle="light"
         showsUserLocation
         followsUserLocation={false}
         showsMyLocationButton={false}
+        onMapReady={onMapReady}
         onUserLocationChange={onUserLocationChange}
       >
         {polylineRestante.length > 1 && (
@@ -237,7 +337,9 @@ export default function NavegacaoAtiva({
             </View>
             <View style={styles.bannerTextos}>
               <Text style={styles.bannerDistancia}>
-                {formatarDistancia(distanciaAteManobra ?? passoAtual.distancia_m)}
+                {formatarDistancia(
+                  distanciaAteManobra ?? passoAtual.distancia_m,
+                )}
               </Text>
               <Text numberOfLines={1} style={styles.bannerRua}>
                 {passoAtual.rua ?? passoAtual.instrucao}
@@ -289,80 +391,123 @@ export default function NavegacaoAtiva({
       </View>
 
       {/* FOLHA INFERIOR */}
-      <View
-        style={[styles.folha, { paddingBottom: insets.bottom + 16 }]}
-        onLayout={({ nativeEvent }) => setAlturaFolha(nativeEvent.layout.height)}
+      <BottomSheet
+        index={1}
+        snapPoints={pontosDaFolha}
+        animateOnMount={false}
+        enableDynamicSizing={false}
+        enablePanDownToClose={false}
+        enableHandlePanningGesture={status === "aceita"}
+        enableContentPanningGesture={false}
+        onChange={aoMudarFolha}
+        backgroundStyle={styles.folhaFundo}
+        handleIndicatorStyle={styles.puxador}
       >
-        <View style={styles.puxador} />
+        <BottomSheetView
+          style={[
+            styles.folhaConteudo,
+            { paddingBottom: Math.max(insets.bottom, 16) },
+          ]}
+        >
+          <View style={styles.resumoCabecalho}>
+            <View style={styles.espacoMenuCorrida} />
+            <View style={styles.resumoLinha}>
+              <Text style={styles.resumoTexto}>
+                {minutosRestantes !== null
+                  ? `${minutosRestantes} min`
+                  : "-- min"}
+                {" · "}
+                {distanciaTexto}
+              </Text>
+              {horarioChegada && (
+                <Text style={styles.resumoChegada}>
+                  Chegada prevista: {horarioChegada}
+                </Text>
+              )}
+            </View>
 
-        <View style={styles.resumoLinha}>
-          <Text style={styles.resumoTexto}>
-            {minutosRestantes !== null ? `${minutosRestantes} min` : "-- min"}
-            {" · "}
-            {distanciaTexto}
-          </Text>
-          {horarioChegada && (
-            <Text style={styles.resumoChegada}>
-              Chegada prevista: {horarioChegada}
-            </Text>
-          )}
-        </View>
-
-        {metodoPagamento && (
-          <View style={styles.chipPagamento}>
-            <Ionicons name="cash-outline" size={14} color="#1959B3" />
-            <Text style={styles.chipPagamentoTexto}>
-              Corrida em {ROTULO_PAGAMENTO[metodoPagamento] ?? metodoPagamento}
-            </Text>
+            {status === "aceita" ? (
+              <TouchableOpacity
+                style={styles.botaoMenuCorrida}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Abrir mais opções da corrida"
+                onPress={() => setMaisVisivel(true)}
+              >
+                <Ionicons name="menu" size={21} color="#333" />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.espacoMenuCorrida} />
+            )}
           </View>
-        )}
 
-        <View style={styles.separador} />
-
-        <View style={styles.linhaPassageiro}>
-          {passageiro?.foto && !passageiro.foto_oculta ? (
-            <Image source={{ uri: passageiro.foto }} style={styles.avatar} />
-          ) : (
-            <View
-              style={[
-                styles.avatar,
-                styles.avatarVazio,
-                passageiro?.foto_oculta && styles.avatarProtegido,
-              ]}
-            >
-              <Feather name="user" size={20} color="#888" />
+          {metodoPagamento && (
+            <View style={styles.chipPagamento}>
+              <Ionicons name="cash-outline" size={14} color="#1959B3" />
+              <Text style={styles.chipPagamentoTexto}>
+                Corrida em{" "}
+                {ROTULO_PAGAMENTO[metodoPagamento] ?? metodoPagamento}
+              </Text>
             </View>
           )}
 
-          <View style={styles.passageiroBloco}>
-            <Text style={styles.passageiroNome}>
-              {passageiro?.nome ?? "Passageiro"}
-            </Text>
-            <Text style={styles.passageiroApoio}>
-              {passageiro?.foto_oculta ? "Foto protegida até sua chegada · " : ""}
-              {typeof passageiro?.nota === "number"
-                ? `★ ${passageiro.nota.toFixed(2).replace(".", ",")} · `
-                : ""}
-              {(passageiro?.corridas ?? 0) === 0
-                ? "Primeira corrida"
-                : `${passageiro?.corridas} ${passageiro?.corridas === 1 ? "corrida" : "corridas"}`}
-            </Text>
+          <View style={styles.separador} />
+
+          <View style={styles.linhaPassageiro}>
+            {passageiro?.foto && !passageiro.foto_oculta ? (
+              <Image source={{ uri: passageiro.foto }} style={styles.avatar} />
+            ) : (
+              <View
+                style={[
+                  styles.avatar,
+                  styles.avatarVazio,
+                  passageiro?.foto_oculta && styles.avatarProtegido,
+                ]}
+              >
+                <Feather name="user" size={20} color="#888" />
+              </View>
+            )}
+
+            <View style={styles.passageiroBloco}>
+              <Text style={styles.passageiroNome}>
+                {passageiro?.nome ?? "Passageiro"}
+              </Text>
+              <Text style={styles.passageiroApoio}>
+                ★{" "}
+                {typeof passageiro?.nota === "number"
+                  ? passageiro.nota.toFixed(2).replace(".", ",")
+                  : "0,0"}
+                {" · "}
+                {passageiro?.corridas ?? 0}{" "}
+                {passageiro?.corridas === 1 ? "corrida" : "corridas"}
+              </Text>
+            </View>
+
+            {passageiro?.telefone ? (
+              <TouchableOpacity style={styles.botaoLigar} onPress={ligar}>
+                <Feather name="phone" size={20} color="#000" />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
-          {passageiro?.telefone ? (
-            <TouchableOpacity style={styles.botaoLigar} onPress={ligar}>
-              <Feather name="phone" size={20} color="#000" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+          <BotaoDeslizar
+            rotulo={passo.rotulo}
+            cor={passo.cor}
+            desabilitado={ocupado}
+            onConfirmar={() => onAvancar(passo.acao)}
+          />
+        </BottomSheetView>
+      </BottomSheet>
 
-        <BotaoDeslizar
-          rotulo={PASSO.rotulo}
-          cor={PASSO.cor}
-          desabilitado={ocupado}
-          onConfirmar={() => onAvancar(PASSO.acao)}
-        />
-      </View>
+      <MaisCorridaAtiva
+        visible={maisVisivel}
+        passageiro={passageiro}
+        origem={origem}
+        destino={destino}
+        ocupado={ocupado}
+        onClose={() => setMaisVisivel(false)}
+        onCancelar={onCancelar}
+      />
     </View>
   );
 }
@@ -422,7 +567,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.15)",
     marginVertical: 10,
   },
-  pillIrLinha: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  pillIrLinha: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
   pillIrTexto: { color: "#FFF", fontSize: 15, fontWeight: "700" },
   velocidade: {
     position: "absolute",
@@ -450,29 +600,54 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     elevation: 4,
   },
-  folha: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
+  folhaFundo: {
     backgroundColor: "#FFF",
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    gap: 12,
     elevation: 10,
   },
+  folhaConteudo: {
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  resumoCabecalho: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  espacoMenuCorrida: { width: 42, height: 42 },
+  botaoMenuCorrida: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 21,
+    backgroundColor: "#F2F2F2",
+  },
   puxador: {
-    alignSelf: "center",
     width: 44,
     height: 5,
     borderRadius: 3,
     backgroundColor: "#DDD",
   },
-  resumoLinha: { gap: 2 },
-  resumoTexto: { fontSize: 18, fontWeight: "700", color: "#000" },
-  resumoChegada: { fontSize: 13, fontWeight: "600", color: "#B26A00" },
+  resumoLinha: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  resumoTexto: {
+    color: "#000",
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  resumoChegada: {
+    color: "#B26A00",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+  },
   chipPagamento: {
     flexDirection: "row",
     alignItems: "center",

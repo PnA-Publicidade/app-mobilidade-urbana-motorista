@@ -1,17 +1,17 @@
+// CODEX: 64 linhas alteradas neste arquivo; simplifica a reputação e remove o cancelamento por ausência da folha.
 import BotaoDeslizar from "@/components/BotaoDeslizar";
 import { Text } from "@/components/common/Texto";
 import { ResumoEspera, calcularContadorEspera } from "@/domain/contadorEspera";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Image,
-  Alert,
   Linking,
   StyleSheet,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export type AcaoCorrida = "cheguei" | "iniciar" | "finalizar";
 
@@ -26,7 +26,6 @@ export interface PassageiroDaCorrida {
 
 interface props {
   status: string;
-  codigoCorrida: string;
   origem?: string | null;
   destino?: string | null;
   passageiro?: PassageiroDaCorrida | null;
@@ -73,7 +72,6 @@ const PASSOS: Record<
 
 export default function CorridaEmAndamento({
   status,
-  codigoCorrida,
   origem,
   destino,
   passageiro,
@@ -82,7 +80,6 @@ export default function CorridaEmAndamento({
   ocupado = false,
   espera,
   onAvancar,
-  onCancelarNaoComparecimento,
 }: props) {
   const insets = useSafeAreaInsets();
   const passo = PASSOS[status];
@@ -176,8 +173,6 @@ export default function CorridaEmAndamento({
           <Text style={styles.titulo}>{passo.titulo}</Text>
           <Text style={styles.apoio}>{contador?.apoio ?? passo.apoio}</Text>
         </View>
-
-        <Text style={styles.codigo}>{codigoCorrida}</Text>
       </View>
 
       <View style={styles.enderecoLinha}>
@@ -197,33 +192,6 @@ export default function CorridaEmAndamento({
           </Text>
         )}
       </View>
-
-      {status === "motorista_chegou" && espera ? (
-        <TouchableOpacity
-          disabled={espera.segundos_decorridos + segundosDesdeResumo < 180}
-          onPress={() =>
-            Alert.alert(
-              "Confirmar ausência",
-              "O passageiro não apareceu? A corrida será cancelada e a tarifa base da categoria será registrada como taxa de cancelamento.",
-              [
-                { text: "Voltar", style: "cancel" },
-                {
-                  text: "Confirmar",
-                  style: "destructive",
-                  onPress: onCancelarNaoComparecimento,
-                },
-              ],
-            )
-          }
-          style={styles.botaoAusencia}
-        >
-          <Text style={styles.textoAusencia}>
-            {espera.segundos_decorridos + segundosDesdeResumo < 180
-              ? "Cancelamento por ausência após 3 minutos"
-              : "Passageiro não apareceu"}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
 
       <View style={styles.separador} />
 
@@ -248,13 +216,13 @@ export default function CorridaEmAndamento({
           </Text>
 
           <Text style={styles.passageiroApoio}>
-            {passageiro?.foto_oculta ? "Foto protegida até sua chegada · " : ""}
+            ★{" "}
             {typeof passageiro?.nota === "number"
-              ? `★ ${passageiro.nota.toFixed(2).replace(".", ",")} · `
-              : ""}
-            {(passageiro?.corridas ?? 0) === 0
-              ? "Primeira corrida"
-              : `${passageiro?.corridas} ${passageiro?.corridas === 1 ? "corrida" : "corridas"}`}
+              ? passageiro.nota.toFixed(2).replace(".", ",")
+              : "0,0"}
+            {" · "}
+            {passageiro?.corridas ?? 0}{" "}
+            {passageiro?.corridas === 1 ? "corrida" : "corridas"}
           </Text>
         </View>
 
@@ -340,22 +308,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 2,
-  },
-
-  codigo: {
-    fontSize: 11,
-    color: "#AAA",
-  },
-
-  botaoAusencia: {
-    alignSelf: "center",
-  },
-
-  textoAusencia: {
-    color: "#C0392B",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
   },
 
   enderecoLinha: {

@@ -1,3 +1,4 @@
+// CODEX: 52 linhas alteradas neste arquivo; sincroniza a corrida do motorista e cancela com motivo registrado.
 import { api } from "@/Services/api";
 import { obterEcho } from "@/Services/echo";
 import { useToast } from "@/context/ToastContext";
@@ -132,7 +133,10 @@ export function useDespachoMotorista() {
         chegada: ChegadaEstimada | null;
         passageiro: PassageiroDaCorrida | null;
         espera: ResumoEspera | null;
-      }>("/minha-corrida-atual", { timeout: 10000 });
+      }>("/minha-corrida-atual", {
+        params: { perfil: "motorista" },
+        timeout: 10000,
+      });
 
       aplicarCorrida(data?.corrida ?? null);
       setChegada((anterior) =>
@@ -616,6 +620,51 @@ export function useDespachoMotorista() {
     sincronizarSituacao,
   ]);
 
+  const cancelarCorrida = useCallback(
+    async (motivo: string): Promise<boolean> => {
+      if (corrida === null || ocupado || motivo.trim() === "") return false;
+
+      setOcupado(true);
+      try {
+        await api.post(`/motorista/corridas/${corrida.id}/cancelar`, {
+          motivo: motivo.trim(),
+        });
+        aplicarCorrida(null, false);
+        setEspera(null);
+        setChegada(null);
+        setPassageiro(null);
+        setOferta(null);
+        setOfertas([]);
+        setDisponivel(true);
+        recusadas.current.clear();
+        setGatilho((atual) => atual + 1);
+        await sincronizarSituacao();
+        return true;
+      } catch (falha) {
+        mostrarToast({
+          tipo: "error",
+          titulo: "Não foi possível cancelar a corrida",
+          mensagem: mensagemDoErro(
+            falha,
+            "Confira sua conexão e tente novamente.",
+          ),
+        });
+        await carregarCorridaAtual();
+        return false;
+      } finally {
+        setOcupado(false);
+      }
+    },
+    [
+      corrida,
+      ocupado,
+      aplicarCorrida,
+      mostrarToast,
+      sincronizarSituacao,
+      carregarCorridaAtual,
+    ],
+  );
+
   return {
     disponivel,
     oferta,
@@ -633,6 +682,7 @@ export function useDespachoMotorista() {
     recusar,
     recarregarOfertas,
     avancar,
+    cancelarCorrida,
     cancelarNaoComparecimento,
   };
 }
