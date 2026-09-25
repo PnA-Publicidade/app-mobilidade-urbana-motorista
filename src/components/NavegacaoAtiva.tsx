@@ -12,7 +12,7 @@ import BotaoDeslizar from "@/components/BotaoDeslizar";
 import MaisCorridaAtiva from "@/components/MaisCorridaAtiva";
 import { Text } from "@/components/common/Texto";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-// CODEX: 27 linhas alteradas; move o prazo de chegada para a folha inferior. Remover após validação.
+// CODEX: 98 linhas alteradas; amplia a área de arraste e suaviza o aviso de chegada. Remover após validação.
 import type {
   AcaoCorrida,
   PassageiroDaCorrida,
@@ -140,7 +140,7 @@ export default function NavegacaoAtiva({
   // um vão grande quando ela é mais baixa
   const pontosDaFolha = useMemo(
     () => [
-      88 + insets.bottom,
+      (status === "aceita" ? 122 : 88) + insets.bottom,
       Math.min(
         250 +
           (metodoPagamento ? 42 : 0) +
@@ -268,6 +268,49 @@ export default function NavegacaoAtiva({
       message: `Estou a caminho na corrida ${codigoCorrida}. Acompanhe pelo app.`,
     });
   };
+
+  const renderizarCabecalhoFolha = useCallback(
+    () => (
+      <View style={styles.cabecalhoFolhaArrastavel}>
+        <View style={styles.puxador} />
+
+        {status === "aceita" && horarioChegada && (
+          <View style={styles.avisoLimiteChegada}>
+            <Ionicons name="time-outline" size={16} color="#805D00" />
+            <Text style={styles.avisoLimiteChegadaTexto}>
+              Chegue antes de: {horarioChegada}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.resumoCabecalho}>
+          <View style={styles.espacoMenuCorrida} />
+          <View style={styles.resumoLinha}>
+            <Text style={styles.resumoTexto}>
+              {minutosRestantes !== null ? `${minutosRestantes} min` : "-- min"}
+              {" · "}
+              {distanciaTexto}
+            </Text>
+          </View>
+
+          {status === "aceita" ? (
+            <TouchableOpacity
+              style={styles.botaoMenuCorrida}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Abrir mais opções da corrida"
+              onPress={() => setMaisVisivel(true)}
+            >
+              <Ionicons name="menu" size={21} color="#333" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.espacoMenuCorrida} />
+          )}
+        </View>
+      </View>
+    ),
+    [distanciaTexto, horarioChegada, minutosRestantes, status],
+  );
 
   // funcional: mostra os telefones de emergência reais. FALTA pra chegar no
   // nível do 99 (gravação da corrida, notificar contato de confiança com a
@@ -404,7 +447,7 @@ export default function NavegacaoAtiva({
         enableContentPanningGesture={false}
         onChange={aoMudarFolha}
         backgroundStyle={styles.folhaFundo}
-        handleIndicatorStyle={styles.puxador}
+        handleComponent={renderizarCabecalhoFolha}
       >
         <BottomSheetView
           style={[
@@ -412,42 +455,6 @@ export default function NavegacaoAtiva({
             { paddingBottom: Math.max(insets.bottom, 16) },
           ]}
         >
-          <View style={styles.resumoCabecalho}>
-            <View style={styles.espacoMenuCorrida} />
-            <View style={styles.resumoLinha}>
-              <Text style={styles.resumoTexto}>
-                {minutosRestantes !== null
-                  ? `${minutosRestantes} min`
-                  : "-- min"}
-                {" · "}
-                {distanciaTexto}
-              </Text>
-            </View>
-
-            {status === "aceita" ? (
-              <TouchableOpacity
-                style={styles.botaoMenuCorrida}
-                activeOpacity={0.75}
-                accessibilityRole="button"
-                accessibilityLabel="Abrir mais opções da corrida"
-                onPress={() => setMaisVisivel(true)}
-              >
-                <Ionicons name="menu" size={21} color="#333" />
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.espacoMenuCorrida} />
-            )}
-          </View>
-
-          {status === "aceita" && horarioChegada && (
-            <View style={styles.avisoLimiteChegada}>
-              <Ionicons name="time-outline" size={16} color="#725500" />
-              <Text style={styles.avisoLimiteChegadaTexto}>
-                Chegue antes de: {horarioChegada}
-              </Text>
-            </View>
-          )}
-
           {metodoPagamento && (
             <View style={styles.chipPagamento}>
               <Ionicons name="cash-outline" size={14} color="#1959B3" />
@@ -588,13 +595,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     borderRadius: 12,
-    backgroundColor: "#FFD84D",
+    borderWidth: 1,
+    borderColor: "#F6D77A",
+    backgroundColor: "#FFF3BF",
     paddingHorizontal: 14,
     paddingVertical: 8,
-    elevation: 4,
   },
   avisoLimiteChegadaTexto: {
-    color: "#332700",
+    color: "#5C4700",
     fontSize: 13,
     fontWeight: "700",
     textAlign: "center",
@@ -635,6 +643,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 12,
   },
+  cabecalhoFolhaArrastavel: {
+    paddingTop: 10,
+    paddingHorizontal: 20,
+    gap: 6,
+  },
   resumoCabecalho: {
     minHeight: 50,
     flexDirection: "row",
@@ -650,6 +663,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F2F2F2",
   },
   puxador: {
+    alignSelf: "center",
     width: 44,
     height: 5,
     borderRadius: 3,
