@@ -12,7 +12,7 @@ import BotaoDeslizar from "@/components/BotaoDeslizar";
 import MaisCorridaAtiva from "@/components/MaisCorridaAtiva";
 import { Text } from "@/components/common/Texto";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-// CODEX: 377 linhas alteradas neste arquivo; restringe o gesto à alça, adiciona o menu e preserva a navegação.
+// CODEX: 40 linhas alteradas; destaca o horário limite de chegada antes do embarque. Remover após validação.
 import type {
   AcaoCorrida,
   PassageiroDaCorrida,
@@ -370,6 +370,15 @@ export default function NavegacaoAtiva({
             </>
           )}
         </TouchableOpacity>
+
+        {status === "aceita" && horarioChegada && (
+          <View style={styles.avisoLimiteChegada}>
+            <Ionicons name="time-outline" size={16} color="#725500" />
+            <Text style={styles.avisoLimiteChegadaTexto}>
+              Chegue antes de: {horarioChegada}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* velocímetro */}
@@ -419,11 +428,6 @@ export default function NavegacaoAtiva({
                 {" · "}
                 {distanciaTexto}
               </Text>
-              {horarioChegada && (
-                <Text style={styles.resumoChegada}>
-                  Chegada prevista: {horarioChegada}
-                </Text>
-              )}
             </View>
 
             {status === "aceita" ? (
@@ -574,6 +578,24 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   pillIrTexto: { color: "#FFF", fontSize: 15, fontWeight: "700" },
+  avisoLimiteChegada: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 12,
+    backgroundColor: "#FFD84D",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    elevation: 4,
+  },
+  avisoLimiteChegadaTexto: {
+    color: "#332700",
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
   velocidade: {
     position: "absolute",
     left: 16,
@@ -640,12 +662,6 @@ const styles = StyleSheet.create({
     color: "#000",
     fontSize: 18,
     fontWeight: "700",
-    textAlign: "center",
-  },
-  resumoChegada: {
-    color: "#B26A00",
-    fontSize: 13,
-    fontWeight: "600",
     textAlign: "center",
   },
   chipPagamento: {
