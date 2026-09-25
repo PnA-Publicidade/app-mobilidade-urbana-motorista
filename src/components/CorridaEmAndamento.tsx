@@ -1,4 +1,4 @@
-// CODEX: 4 linhas alteradas; exibe o avatar liberado após a chegada. Remover após validação.
+// CODEX: 4 linhas alteradas; oculta a distância depois da chegada ao embarque. Remover após validação.
 import BotaoDeslizar from "@/components/BotaoDeslizar";
 import { Text } from "@/components/common/Texto";
 import { ResumoEspera, calcularContadorEspera } from "@/domain/contadorEspera";
@@ -186,7 +186,7 @@ export default function CorridaEmAndamento({
           {enderecoAlvo ?? "Endereço não informado"}
         </Text>
 
-        {typeof distanciaKm === "number" && (
+        {indoParaODestino && typeof distanciaKm === "number" && (
           <Text style={styles.distancia}>
             {distanciaKm.toFixed(1).replace(".", ",")} km
           </Text>
