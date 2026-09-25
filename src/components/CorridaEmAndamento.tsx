@@ -1,4 +1,4 @@
-// CODEX: 64 linhas alteradas neste arquivo; simplifica a reputação e remove o cancelamento por ausência da folha.
+// CODEX: 4 linhas alteradas; exibe o avatar liberado após a chegada. Remover após validação.
 import BotaoDeslizar from "@/components/BotaoDeslizar";
 import { Text } from "@/components/common/Texto";
 import { ResumoEspera, calcularContadorEspera } from "@/domain/contadorEspera";
@@ -196,7 +196,7 @@ export default function CorridaEmAndamento({
       <View style={styles.separador} />
 
       <View style={styles.linhaPassageiro}>
-        {passageiro?.foto && !passageiro.foto_oculta ? (
+        {passageiro?.foto ? (
           <Image source={{ uri: passageiro.foto }} style={styles.avatar} />
         ) : (
           <View
