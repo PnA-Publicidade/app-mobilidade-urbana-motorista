@@ -90,6 +90,7 @@ export default function Home() {
 
   // ✨ NOVO: Estado para armazenar o índice do BottomSheet
   const [bottomSheetIndex, setBottomSheetIndex] = useState<number>(0);
+  const [alturaMenuInferior, setAlturaMenuInferior] = useState(0);
   const bottomSheetAnimatedIndex = useSharedValue(0);
 
   // ✨ NOVO: Estado do modal de ganhos foi elevado para cá
@@ -187,8 +188,13 @@ export default function Home() {
           onUserLocationFound={handleUserLocationFound}
           bottomSheetIndex={bottomSheetIndex}
           indiceFolhaAnimado={bottomSheetAnimatedIndex}
+          alturaMinimaRodape={corrida === null ? alturaMenuInferior : 0}
           isGanhoModalVisible={ganhoModalVisivel}
-          rota={rotaDaCorrida}
+          // já no embarque não há o que traçar: a rota de poucos metros
+          // dava a volta no quarteirão por causa da mão da rua
+          rota={
+            corrida?.status_corrida === "motorista_chegou" ? [] : rotaDaCorrida
+          }
           alvo={alvoDaCorrida}
           alvoEhDestino={false}
           alturaFolha={
@@ -344,6 +350,7 @@ export default function Home() {
             emCorrida={corrida !== null}
             ocupado={ocupado}
             onAlternarDisponibilidade={alternarDisponibilidade}
+            onAlturaChange={setAlturaMenuInferior}
           />
         </>
       )}

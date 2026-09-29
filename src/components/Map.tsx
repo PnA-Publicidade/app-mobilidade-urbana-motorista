@@ -51,6 +51,9 @@ interface MapProps {
   alvoEhDestino?: boolean;
   // altura ocupada pela folha da corrida, pra rota não ficar embaixo dela
   alturaFolha?: number;
+  // altura de um painel fixo no rodapé (ex.: "Buscando"), que fica por cima
+  // da folha arrastável quando ela está recolhida
+  alturaMinimaRodape?: number;
 }
 
 // Sem posição ainda e sem cache, mostra o país inteiro em vez de 0,0 (que é
@@ -88,6 +91,7 @@ export default function Map({
   alvo = null,
   alvoEhDestino = false,
   alturaFolha = 0,
+  alturaMinimaRodape = 0,
 }: MapProps) {
   const { height: alturaTela } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -117,11 +121,14 @@ export default function Map({
     const alturaOcupada =
       alturaFolha > 0
         ? alturaFolha
-        : interpolate(
-            indice,
-            [0, 1, 2],
-            [alturaTela * 0.18, alturaTela * 0.52, alturaTela * 0.92],
-            Extrapolation.CLAMP,
+        : Math.max(
+            interpolate(
+              indice,
+              [0, 1, 2],
+              [alturaTela * 0.18, alturaTela * 0.52, alturaTela * 0.92],
+              Extrapolation.CLAMP,
+            ),
+            alturaMinimaRodape,
           );
 
     return {
@@ -134,7 +141,7 @@ export default function Map({
           ? 1
           : interpolate(indice, [0, 1.7, 2], [1, 1, 0], Extrapolation.CLAMP),
     };
-  }, [alturaFolha, alturaTela, bottomSheetIndex, indiceFolhaAnimado]);
+  }, [alturaFolha, alturaMinimaRodape, alturaTela, bottomSheetIndex, indiceFolhaAnimado]);
 
   // 🔹 guarda a região original do usuário para aplicar offsets conforme o BottomSheet
   const userInitialRegion = useRef<Region | null>(null);
@@ -145,6 +152,17 @@ export default function Map({
     rota.length > 0
       ? `${rota.length}:${rota[0].latitude},${rota[0].longitude}:${rota[rota.length - 1].latitude},${rota[rota.length - 1].longitude}`
       : "";
+
+  // Contorno do react-native-maps no Android (nova arquitetura, issue
+  // react-native-maps#5840): desmontar a Polyline às vezes deixa a linha
+  // desenhada no mapa nativo. Quando a rota some (chegou no embarque,
+  // corrida acabou), remonta o mapa para limpá-la.
+  const rotaAnterior = useRef("");
+  useEffect(() => {
+    const tinhaRota = rotaAnterior.current !== "";
+    rotaAnterior.current = chaveRota;
+    if (tinhaRota && chaveRota === "") recarregarMapa();
+  }, [chaveRota, recarregarMapa]);
 
   useEffect(() => {
     if (chaveRota === "" || !mapReady || mapRef.current === null) return;
