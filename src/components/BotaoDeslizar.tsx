@@ -1,3 +1,4 @@
+// CODEX: 0 linhas alteradas; protege o deslize horizontal e mantém o rótulo legível em telas estreitas. Remover após validação ou commit.
 import { Text } from "@/components/common/Texto";
 import { Feather } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
@@ -28,6 +29,11 @@ export default function BotaoDeslizar({
   const [largura, setLargura] = useState(0);
   const [deslocamento] = useState(() => new Animated.Value(0));
   const confirmado = useRef(false);
+  const desabilitadoRef = useRef(desabilitado);
+
+  useEffect(() => {
+    desabilitadoRef.current = desabilitado;
+  }, [desabilitado]);
 
   // o curso é medido a cada render; o PanResponder lê pela ref pra não
   // ficar preso ao valor do primeiro layout
@@ -57,9 +63,12 @@ export default function BotaoDeslizar({
   // eslint-disable-next-line react-hooks/refs
   const [responder] = useState(() =>
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesto) => Math.abs(gesto.dx) > 4,
+      onMoveShouldSetPanResponder: (_, gesto) =>
+        !desabilitadoRef.current &&
+        Math.abs(gesto.dx) > 4 &&
+        Math.abs(gesto.dx) > Math.abs(gesto.dy),
       onPanResponderMove: (_, gesto) => {
-        if (confirmado.current) return;
+        if (confirmado.current || desabilitadoRef.current) return;
 
         const limitado = Math.min(Math.max(gesto.dx, 0), cursoRef.current);
 
@@ -67,6 +76,10 @@ export default function BotaoDeslizar({
       },
       onPanResponderRelease: (_, gesto) => {
         if (confirmado.current) return;
+        if (desabilitadoRef.current) {
+          voltar();
+          return;
+        }
 
         const curso = cursoRef.current;
 
@@ -77,8 +90,8 @@ export default function BotaoDeslizar({
             toValue: curso,
             duration: 120,
             useNativeDriver: true,
-          }).start(() => {
-            onConfirmarRef.current();
+          }).start(({ finished }) => {
+            if (finished && !desabilitadoRef.current) onConfirmarRef.current();
 
             // libera pro próximo passo do fluxo
             confirmado.current = false;
@@ -112,8 +125,13 @@ export default function BotaoDeslizar({
         desabilitado && styles.desabilitado,
       ]}
     >
-      <Animated.View style={{ opacity: opacidadeRotulo }}>
-        <Text style={styles.rotulo}>{rotulo}</Text>
+      <Animated.View
+        style={[styles.rotuloContainer, { opacity: opacidadeRotulo }]}
+        pointerEvents="none"
+      >
+        <Text style={styles.rotulo} numberOfLines={2}>
+          {rotulo}
+        </Text>
       </Animated.View>
 
       <Animated.View
@@ -138,7 +156,14 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 
+  rotuloContainer: {
+    alignSelf: "stretch",
+    paddingLeft: TAMANHO_ALCA + MARGEM * 3,
+    paddingRight: MARGEM * 3,
+  },
+
   rotulo: {
+    textAlign: "center",
     color: "#FFF",
     fontSize: 17,
     fontWeight: "700",

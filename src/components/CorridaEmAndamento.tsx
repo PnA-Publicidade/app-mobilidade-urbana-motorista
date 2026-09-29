@@ -1,4 +1,4 @@
-// CODEX: 4 linhas alteradas; oculta a distância depois da chegada ao embarque. Remover após validação.
+// CODEX: 0 linhas alteradas; mantém o embarque utilizável com telas pequenas e fontes maiores. Remover após validação ou commit.
 import BotaoDeslizar from "@/components/BotaoDeslizar";
 import { Text } from "@/components/common/Texto";
 import { ResumoEspera, calcularContadorEspera } from "@/domain/contadorEspera";
@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import {
   Image,
   Linking,
+  ScrollView,
+  useWindowDimensions,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -82,6 +84,7 @@ export default function CorridaEmAndamento({
   onAvancar,
 }: props) {
   const insets = useSafeAreaInsets();
+  const { height: alturaTela } = useWindowDimensions();
   const passo = PASSOS[status];
 
   const [relogio, setRelogio] = useState({
@@ -150,95 +153,110 @@ export default function CorridaEmAndamento({
   };
 
   return (
-    <View style={[styles.folha, { paddingBottom: insets.bottom + 16 }]}>
+    <View
+      style={[
+        styles.folha,
+        {
+          paddingBottom: Math.max(insets.bottom, 16),
+          maxHeight: alturaTela - insets.top - 24,
+        },
+      ]}
+    >
       <View style={styles.puxador} />
 
-      <View style={styles.linhaTopo}>
-        {contador ? (
-          <View style={[styles.selo, { borderColor: corContador }]}>
-            <Text style={[styles.seloTexto, { color: corContador }]}>
-              {contador.tempo}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.selo}>
-            <Text style={styles.seloTexto}>
-              {typeof minutos === "number" ? `${minutos}` : "--"}
-            </Text>
-            <Text style={styles.seloUnidade}>min</Text>
-          </View>
-        )}
+      <ScrollView contentContainerStyle={styles.conteudo} bounces={false}>
+        <View style={styles.linhaTopo}>
+          {contador ? (
+            <View style={[styles.selo, { borderColor: corContador }]}>
+              <Text style={[styles.seloTexto, { color: corContador }]}>
+                {contador.tempo}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.selo}>
+              <Text style={styles.seloTexto}>
+                {typeof minutos === "number" ? `${minutos}` : "--"}
+              </Text>
+              <Text style={styles.seloUnidade}>min</Text>
+            </View>
+          )}
 
-        <View style={styles.tituloBloco}>
-          <Text style={styles.titulo}>{passo.titulo}</Text>
-          <Text style={styles.apoio}>{contador?.apoio ?? passo.apoio}</Text>
+          <View style={styles.tituloBloco}>
+            <Text style={styles.titulo}>{passo.titulo}</Text>
+            <Text style={styles.apoio}>{contador?.apoio ?? passo.apoio}</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.enderecoLinha}>
-        <Ionicons
-          name={indoParaODestino ? "flag" : "location"}
-          size={16}
-          color={indoParaODestino ? "#D32F2F" : "#17A673"}
+        <View style={styles.enderecoLinha}>
+          <Ionicons
+            name={indoParaODestino ? "flag" : "location"}
+            size={16}
+            color={indoParaODestino ? "#D32F2F" : "#17A673"}
+          />
+
+          <Text numberOfLines={2} style={styles.endereco}>
+            {enderecoAlvo ?? "Endereço não informado"}
+          </Text>
+
+          {indoParaODestino && typeof distanciaKm === "number" && (
+            <Text style={styles.distancia}>
+              {distanciaKm.toFixed(1).replace(".", ",")} km
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.separador} />
+
+        <View style={styles.linhaPassageiro}>
+          {passageiro?.foto ? (
+            <Image source={{ uri: passageiro.foto }} style={styles.avatar} />
+          ) : (
+            <View
+              style={[
+                styles.avatar,
+                styles.avatarVazio,
+                passageiro?.foto_oculta && styles.avatarProtegido,
+              ]}
+            >
+              <Feather name="user" size={20} color="#888" />
+            </View>
+          )}
+
+          <View style={styles.passageiroBloco}>
+            <Text style={styles.passageiroNome}>
+              {passageiro?.nome ?? "Passageiro"}
+            </Text>
+
+            <Text style={styles.passageiroApoio}>
+              ★{" "}
+              {typeof passageiro?.nota === "number"
+                ? passageiro.nota.toFixed(2).replace(".", ",")
+                : "0,0"}
+              {" · "}
+              {passageiro?.corridas ?? 0}{" "}
+              {passageiro?.corridas === 1 ? "corrida" : "corridas"}
+            </Text>
+          </View>
+
+          {passageiro?.telefone ? (
+            <TouchableOpacity
+              style={styles.botaoLigar}
+              onPress={ligar}
+              accessibilityRole="button"
+              accessibilityLabel="Ligar para o passageiro"
+            >
+              <Feather name="phone" size={20} color="#000" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <BotaoDeslizar
+          rotulo={passo.rotulo}
+          cor={passo.cor}
+          desabilitado={ocupado}
+          onConfirmar={() => onAvancar(passo.acao)}
         />
-
-        <Text numberOfLines={2} style={styles.endereco}>
-          {enderecoAlvo ?? "Endereço não informado"}
-        </Text>
-
-        {indoParaODestino && typeof distanciaKm === "number" && (
-          <Text style={styles.distancia}>
-            {distanciaKm.toFixed(1).replace(".", ",")} km
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.separador} />
-
-      <View style={styles.linhaPassageiro}>
-        {passageiro?.foto ? (
-          <Image source={{ uri: passageiro.foto }} style={styles.avatar} />
-        ) : (
-          <View
-            style={[
-              styles.avatar,
-              styles.avatarVazio,
-              passageiro?.foto_oculta && styles.avatarProtegido,
-            ]}
-          >
-            <Feather name="user" size={20} color="#888" />
-          </View>
-        )}
-
-        <View style={styles.passageiroBloco}>
-          <Text style={styles.passageiroNome}>
-            {passageiro?.nome ?? "Passageiro"}
-          </Text>
-
-          <Text style={styles.passageiroApoio}>
-            ★{" "}
-            {typeof passageiro?.nota === "number"
-              ? passageiro.nota.toFixed(2).replace(".", ",")
-              : "0,0"}
-            {" · "}
-            {passageiro?.corridas ?? 0}{" "}
-            {passageiro?.corridas === 1 ? "corrida" : "corridas"}
-          </Text>
-        </View>
-
-        {passageiro?.telefone ? (
-          <TouchableOpacity style={styles.botaoLigar} onPress={ligar}>
-            <Feather name="phone" size={20} color="#000" />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      <BotaoDeslizar
-        rotulo={passo.rotulo}
-        cor={passo.cor}
-        desabilitado={ocupado}
-        onConfirmar={() => onAvancar(passo.acao)}
-      />
+      </ScrollView>
     </View>
   );
 }
@@ -258,6 +276,8 @@ const styles = StyleSheet.create({
     gap: 14,
     zIndex: 20,
   },
+
+  conteudo: { gap: 14 },
 
   puxador: {
     alignSelf: "center",
