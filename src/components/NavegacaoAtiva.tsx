@@ -11,8 +11,8 @@
 import BotaoDeslizar from "@/components/BotaoDeslizar";
 import MaisCorridaAtiva from "@/components/MaisCorridaAtiva";
 import { Text } from "@/components/common/Texto";
-import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
-// CODEX: 98 linhas alteradas; amplia a área de arraste e suaviza o aviso de chegada. Remover após validação.
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+// CODEX: 0 linhas alteradas; dimensiona a folha pelo conteúdo e permite rolar em telas pequenas. Remover após validação ou commit.
 import type {
   AcaoCorrida,
   PassageiroDaCorrida,
@@ -23,6 +23,7 @@ import {
   formatarHorario,
 } from "@/domain/navegacao";
 import type { Coordenada } from "@/domain/rotaDaCorrida";
+import { useCarregamentoMapa } from "@/hooks/useCarregamentoMapa";
 import { useNavegacaoDaCorrida } from "@/hooks/useNavegacaoDaCorrida";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -129,6 +130,14 @@ export default function NavegacaoAtiva({
   const { height: alturaTela } = useWindowDimensions();
   const mapRef = useRef<MapView>(null);
   const mapaPronto = useRef(false);
+  const {
+    tentativa,
+    demorando,
+    aoPronto,
+    aoCarregar,
+    dispensar,
+    tentarNovamente,
+  } = useCarregamentoMapa();
   const primeiraPosicao = useRef(true);
   const ultimaPosicao = useRef<Coordenada | null>(null);
   const ultimoHeading = useRef(0);
@@ -138,27 +147,27 @@ export default function NavegacaoAtiva({
   // o velocímetro e os botões laterais acompanham a altura medida de verdade
   // em vez de um valor fixo — senão ou sobra vão embaixo da folha ou fica
   // um vão grande quando ela é mais baixa
-  const pontosDaFolha = useMemo(
-    () => [
-      (status === "aceita" ? 122 : 88) + insets.bottom,
+  const [alturaCabecalho, setAlturaCabecalho] = useState(110);
+  const [alturaConteudo, setAlturaConteudo] = useState(190);
+  const pontosDaFolha = useMemo(() => {
+    const limite = Math.max(alturaTela - insets.top - 96, 160);
+    const recolhida = Math.min(alturaCabecalho + insets.bottom, limite - 1);
+    return [
+      recolhida,
       Math.min(
-        250 +
-          (metodoPagamento ? 42 : 0) +
-          (status === "aceita" ? 44 : 0) +
-          insets.bottom,
-        alturaTela * 0.48,
+        Math.max(alturaCabecalho + alturaConteudo, recolhida + 1),
+        limite,
       ),
-    ],
-    [alturaTela, insets.bottom, metodoPagamento, status],
-  );
-  const [alturaFolha, setAlturaFolha] = useState(pontosDaFolha[1]);
+    ];
+  }, [alturaTela, insets.top, insets.bottom, alturaCabecalho, alturaConteudo]);
+  const [indiceFolha, setIndiceFolha] = useState(1);
+  const alturaFolha = pontosDaFolha[indiceFolha] ?? pontosDaFolha[1];
   const [navegando, setNavegando] = useState(false);
   const [maisVisivel, setMaisVisivel] = useState(false);
 
   const aoMudarFolha = useCallback(
-    (indice: number) =>
-      setAlturaFolha(pontosDaFolha[indice] ?? pontosDaFolha[1]),
-    [pontosDaFolha],
+    (indice: number) => setIndiceFolha(indice),
+    [],
   );
 
   const { rota, passoAtual, distanciaAteManobra } = useNavegacaoDaCorrida(
@@ -184,12 +193,13 @@ export default function NavegacaoAtiva({
 
   const onMapReady = useCallback(() => {
     mapaPronto.current = true;
+    aoPronto();
     const centro = ultimaPosicao.current ?? alvo;
 
     if (centro) {
       centralizarNavegacao(centro, ultimoHeading.current, 0);
     }
-  }, [alvo, centralizarNavegacao]);
+  }, [alvo, centralizarNavegacao, aoPronto]);
 
   const onUserLocationChange = useCallback(
     (event: UserLocationChangeEvent) => {
@@ -271,17 +281,13 @@ export default function NavegacaoAtiva({
 
   const renderizarCabecalhoFolha = useCallback(
     () => (
-      <View style={styles.cabecalhoFolhaArrastavel}>
+      <View
+        style={styles.cabecalhoFolhaArrastavel}
+        onLayout={({ nativeEvent }) =>
+          setAlturaCabecalho(Math.ceil(nativeEvent.layout.height))
+        }
+      >
         <View style={styles.puxador} />
-
-        {status === "aceita" && horarioChegada && (
-          <View style={styles.avisoLimiteChegada}>
-            <Ionicons name="time-outline" size={16} color="#805D00" />
-            <Text style={styles.avisoLimiteChegadaTexto}>
-              Chegue antes de: {horarioChegada}
-            </Text>
-          </View>
-        )}
 
         <View style={styles.resumoCabecalho}>
           <View style={styles.espacoMenuCorrida} />
@@ -307,6 +313,18 @@ export default function NavegacaoAtiva({
             <View style={styles.espacoMenuCorrida} />
           )}
         </View>
+
+        {status === "aceita" && horarioChegada && (
+          <View style={styles.avisoLimiteChegada}>
+            <Ionicons name="time-outline" size={16} color="#111" />
+            <Text style={styles.avisoLimiteChegadaTexto}>
+              Chegue antes de:
+              <Text style={styles.avisoLimiteChegadaTextoTempo}>
+                {` ` + horarioChegada}
+              </Text>
+            </Text>
+          </View>
+        )}
       </View>
     ),
     [distanciaTexto, horarioChegada, minutosRestantes, status],
@@ -326,6 +344,7 @@ export default function NavegacaoAtiva({
   return (
     <View style={styles.tela}>
       <MapView
+        key={tentativa}
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
@@ -345,6 +364,7 @@ export default function NavegacaoAtiva({
         followsUserLocation={false}
         showsMyLocationButton={false}
         onMapReady={onMapReady}
+        onMapLoaded={aoCarregar}
         onUserLocationChange={onUserLocationChange}
       >
         {polylineRestante.length > 1 && (
@@ -416,6 +436,32 @@ export default function NavegacaoAtiva({
             </>
           )}
         </TouchableOpacity>
+        {demorando && (
+          <View style={styles.avisoMapa} accessibilityRole="alert">
+            <Text style={styles.avisoMapaTexto}>
+              O mapa está demorando a aparecer?
+            </Text>
+            <View style={styles.avisoMapaAcoes}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.avisoMapaBotao}
+                onPress={() => {
+                  mapaPronto.current = false;
+                  tentarNovamente();
+                }}
+              >
+                <Text style={styles.avisoMapaLink}>Tentar novamente</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.avisoMapaBotao}
+                onPress={dispensar}
+              >
+                <Text style={styles.avisoMapaLink}>Já apareceu</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* velocímetro */}
@@ -439,6 +485,7 @@ export default function NavegacaoAtiva({
       {/* FOLHA INFERIOR */}
       <BottomSheet
         index={1}
+        topInset={insets.top}
         snapPoints={pontosDaFolha}
         animateOnMount={false}
         enableDynamicSizing={false}
@@ -449,8 +496,18 @@ export default function NavegacaoAtiva({
         backgroundStyle={styles.folhaFundo}
         handleComponent={renderizarCabecalhoFolha}
       >
-        <BottomSheetView
-          style={[
+        <BottomSheetScrollView
+          onContentSizeChange={(_, altura) =>
+            setAlturaConteudo(Math.ceil(altura))
+          }
+          style={{ opacity: indiceFolha === 0 ? 0 : 1 }}
+          pointerEvents={indiceFolha === 0 ? "none" : "auto"}
+          accessibilityElementsHidden={indiceFolha === 0}
+          importantForAccessibility={
+            indiceFolha === 0 ? "no-hide-descendants" : "auto"
+          }
+          bounces={false}
+          contentContainerStyle={[
             styles.folhaConteudo,
             { paddingBottom: Math.max(insets.bottom, 16) },
           ]}
@@ -498,7 +555,12 @@ export default function NavegacaoAtiva({
             </View>
 
             {passageiro?.telefone ? (
-              <TouchableOpacity style={styles.botaoLigar} onPress={ligar}>
+              <TouchableOpacity
+                style={styles.botaoLigar}
+                onPress={ligar}
+                accessibilityRole="button"
+                accessibilityLabel="Ligar para o passageiro"
+              >
                 <Feather name="phone" size={20} color="#000" />
               </TouchableOpacity>
             ) : null}
@@ -510,7 +572,7 @@ export default function NavegacaoAtiva({
             desabilitado={ocupado}
             onConfirmar={() => onAvancar(passo.acao)}
           />
-        </BottomSheetView>
+        </BottomSheetScrollView>
       </BottomSheet>
 
       <MaisCorridaAtiva
@@ -527,6 +589,21 @@ export default function NavegacaoAtiva({
 }
 
 const styles = StyleSheet.create({
+  avisoMapa: {
+    backgroundColor: "#FFF",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+  },
+  avisoMapaTexto: { color: "#333", fontSize: 14, fontWeight: "600" },
+  avisoMapaAcoes: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  avisoMapaBotao: { minHeight: 44, justifyContent: "center" },
+  avisoMapaLink: { color: "#1959B3", fontSize: 14, fontWeight: "600" },
   // cobre o mapa/menu de fora por cima: sem isso o TopMenu e os botões do
   // Map por trás (zIndex até 30) apareciam por cima da navegação
   tela: {
@@ -594,15 +671,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#F6D77A",
-    backgroundColor: "#FFF3BF",
-    paddingHorizontal: 14,
+    paddingHorizontal: 8,
     paddingVertical: 8,
   },
   avisoLimiteChegadaTexto: {
-    color: "#5C4700",
+    color: "#111",
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  avisoLimiteChegadaTextoTempo: {
+    color: "#F6D77A",
     fontSize: 13,
     fontWeight: "700",
     textAlign: "center",
@@ -691,7 +770,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
   },
-  chipPagamentoTexto: { color: "#1959B3", fontSize: 13, fontWeight: "600" },
+  chipPagamentoTexto: {
+    flexShrink: 1,
+    color: "#1959B3",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   separador: { height: 1, backgroundColor: "#EEE" },
   linhaPassageiro: { flexDirection: "row", alignItems: "center", gap: 12 },
   avatar: { width: 42, height: 42, borderRadius: 21 },
@@ -701,7 +785,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarProtegido: { opacity: 0.55, backgroundColor: "#D8D8D8" },
-  passageiroBloco: { flex: 1 },
+  passageiroBloco: { flex: 1, minWidth: 0 },
   passageiroNome: { fontSize: 16, fontWeight: "600", color: "#000" },
   passageiroApoio: { fontSize: 13, color: "#777", marginTop: 2 },
   botaoLigar: {
