@@ -1,5 +1,5 @@
 {
-  "name": "p6driver-frontend",
+  "name": "app-mobilidade-urbana-frontend-motorista",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "_codexComment": "CODEX: 17 linhas alteradas neste arquivo; alinha os módulos nativos e adiciona seleção de documentos.",
