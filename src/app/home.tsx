@@ -1,4 +1,5 @@
 // app/home.tsx
+// CODEX: 81 linhas alteradas neste arquivo; conecta navegação, detalhes e cancelamento da corrida ativa.
 import AvaliarPassageiro from "@/components/AvaliarPassageiro";
 import CorridaEmAndamento from "@/components/CorridaEmAndamento";
 import NavegacaoAtiva from "@/components/NavegacaoAtiva";
@@ -16,6 +17,7 @@ import { useAuth } from "@/context/AuthProvider";
 import { useAvaliacaoPendente } from "@/hooks/useAvaliacaoPendente";
 import { useDespachoMotorista } from "@/hooks/useDespachoMotorista";
 import { useRotaDaCorrida } from "@/hooks/useRotaDaCorrida";
+import { alvoDaCorrida as obterAlvoDaCorrida } from "@/domain/rotaDaCorrida";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -60,11 +62,19 @@ export default function Home() {
     recusar,
     recarregarOfertas,
     avancar,
+    cancelarCorrida,
     cancelarNaoComparecimento,
   } = useDespachoMotorista();
 
+  const statusNavegacao =
+    corrida?.status_corrida === "aceita" ||
+    corrida?.status_corrida === "em_andamento"
+      ? corrida.status_corrida
+      : null;
+  const statusComNavegacao = statusNavegacao !== null;
+  const alvoNavegacao = obterAlvoDaCorrida(corrida);
   const { rota: rotaDaCorrida, alvo: alvoDaCorrida } = useRotaDaCorrida(
-    corrida,
+    statusComNavegacao ? null : corrida,
     posicao,
   );
 
@@ -80,6 +90,7 @@ export default function Home() {
 
   // ✨ NOVO: Estado para armazenar o índice do BottomSheet
   const [bottomSheetIndex, setBottomSheetIndex] = useState<number>(0);
+  const [alturaMenuInferior, setAlturaMenuInferior] = useState(0);
   const bottomSheetAnimatedIndex = useSharedValue(0);
 
   // ✨ NOVO: Estado do modal de ganhos foi elevado para cá
@@ -170,49 +181,69 @@ export default function Home() {
       {/* <StatusBar style={colorScheme === "dark" ? "light" : "dark"} /> */}
 
       {/* 🔹 Mapa com ajuste de posicionamento */}
-      <Map
-        region={region}
-        onRegionChange={setRegion}
-        onUserLocationFound={handleUserLocationFound}
-        bottomSheetIndex={bottomSheetIndex}
-        indiceFolhaAnimado={bottomSheetAnimatedIndex}
-        isGanhoModalVisible={ganhoModalVisivel}
-        rota={rotaDaCorrida}
-        alvo={alvoDaCorrida}
-        alvoEhDestino={corrida?.status_corrida === "em_andamento"}
-        alturaFolha={
-          corrida === null
-            ? 0
-            : corrida.status_corrida === "motorista_chegou"
-              ? ALTURA_FOLHA_ESPERA
-              : ALTURA_FOLHA_CORRIDA
-        }
-      />
-
-      {corrida !== null && corrida.status_corrida === "em_andamento" && (
-        <NavegacaoAtiva
-          codigoCorrida={corrida.codigo_corrida}
+      {!statusComNavegacao && (
+        <Map
+          region={region}
+          onRegionChange={setRegion}
+          onUserLocationFound={handleUserLocationFound}
+          bottomSheetIndex={bottomSheetIndex}
+          indiceFolhaAnimado={bottomSheetAnimatedIndex}
+          alturaMinimaRodape={corrida === null ? alturaMenuInferior : 0}
+          isGanhoModalVisible={ganhoModalVisivel}
+          // já no embarque não há o que traçar: a rota de poucos metros
+          // dava a volta no quarteirão por causa da mão da rua
+          rota={
+            corrida?.status_corrida === "motorista_chegou" ? [] : rotaDaCorrida
+          }
           alvo={alvoDaCorrida}
+          alvoEhDestino={false}
+          alturaFolha={
+            corrida?.status_corrida === "motorista_chegou"
+              ? ALTURA_FOLHA_ESPERA
+              : corrida === null
+                ? 0
+                : ALTURA_FOLHA_CORRIDA
+          }
+        />
+      )}
+
+      {corrida !== null && statusNavegacao !== null && (
+        <NavegacaoAtiva
+          status={statusNavegacao}
+          codigoCorrida={corrida.codigo_corrida}
+          alvo={alvoNavegacao}
           enderecoAlvo={
-            corrida.corrida_destinos?.find((d) => d.tipo === "destino")
-              ?.endereco
+            corrida.corrida_destinos?.find(
+              (destino) =>
+                destino.tipo ===
+                (corrida.status_corrida === "aceita" ? "origem" : "destino"),
+            )?.endereco
           }
           passageiro={passageiro}
+          origem={
+            corrida.corrida_destinos?.find(
+              (destino) => destino.tipo === "origem",
+            )?.endereco
+          }
+          destino={
+            corrida.corrida_destinos?.find(
+              (destino) => destino.tipo === "destino",
+            )?.endereco
+          }
           metodoPagamento={corrida.corrida_financeiro?.metodo_pagamento ?? null}
           minutos={chegada?.minutos ?? null}
           distanciaKm={chegada?.distancia_km ?? null}
           ocupado={ocupado}
           onAvancar={avancar}
+          onCancelar={cancelarCorrida}
         />
       )}
 
-      {corrida !== null && corrida.status_corrida !== "em_andamento" && (
+      {corrida?.status_corrida === "motorista_chegou" && (
         <CorridaEmAndamento
           status={corrida.status_corrida}
-          codigoCorrida={corrida.codigo_corrida}
           origem={
-            corrida.corrida_destinos?.find((d) => d.tipo === "origem")
-              ?.endereco
+            corrida.corrida_destinos?.find((d) => d.tipo === "origem")?.endereco
           }
           destino={
             corrida.corrida_destinos?.find((d) => d.tipo === "destino")
@@ -258,9 +289,7 @@ export default function Home() {
         setVisible={setGanhoModalVisivel}
         corridaAtivaId={corrida?.id ?? null}
       />
-      {(corrida === null || corrida.status_corrida !== "em_andamento") && (
-        <TopMenu onMenuPress={handleMenuOpen} />
-      )}
+      {!statusComNavegacao && <TopMenu onMenuPress={handleMenuOpen} />}
 
       {/* Backdrop para SideMenu */}
       {menuVisible && (
@@ -321,6 +350,7 @@ export default function Home() {
             emCorrida={corrida !== null}
             ocupado={ocupado}
             onAlternarDisponibilidade={alternarDisponibilidade}
+            onAlturaChange={setAlturaMenuInferior}
           />
         </>
       )}
