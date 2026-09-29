@@ -19,6 +19,7 @@ import type {
 } from "@/components/CorridaEmAndamento";
 import {
   anguloDaManobra,
+  distanciaMetros,
   formatarDistancia,
   formatarHorario,
 } from "@/domain/navegacao";
@@ -212,6 +213,10 @@ export default function NavegacaoAtiva({
       };
       ultimaPosicao.current = nova;
       setPosicao(nova);
+      // o onMapLoaded não chega em todo aparelho; receber a posição na camada
+      // do mapa já prova que ele está desenhado (evita o aviso falso de
+      // "O mapa está demorando a aparecer?")
+      aoCarregar();
 
       if (typeof coordinate.heading === "number" && coordinate.heading >= 0) {
         ultimoHeading.current = coordinate.heading;
@@ -232,7 +237,7 @@ export default function NavegacaoAtiva({
         primeiraPosicao.current = false;
       }
     },
-    [centralizarNavegacao],
+    [aoCarregar, centralizarNavegacao],
   );
 
   const polylineRestante = useMemo(
@@ -240,16 +245,40 @@ export default function NavegacaoAtiva({
     [rota, posicao],
   );
 
+  // ETA proporcional ao que falta da rota: rota.duracao_s é da hora em que a
+  // rota foi calculada e ficava parado enquanto a distância diminuía
+  const fracaoRestante = useMemo(() => {
+    const total = rota?.polyline?.length ?? 0;
+    if (total < 2 || polylineRestante.length < 2) return 1;
+    return Math.min(1, polylineRestante.length / total);
+  }, [rota, polylineRestante]);
+
+  // distância que ainda falta, medida na rota a partir da posição ao vivo —
+  // rota.distancia_m é da hora em que a rota foi calculada (e vinha 0 perto
+  // do embarque, mostrando "2 min · 0 m" com a manobra a 29 m)
   const distanciaTexto = useMemo(() => {
-    const metros =
-      rota?.distancia_m ?? (distanciaKm ? distanciaKm * 1000 : null);
+    let metros: number | null = null;
+
+    if (polylineRestante.length >= 2) {
+      metros = 0;
+      for (let i = 1; i < polylineRestante.length; i++) {
+        metros += distanciaMetros(polylineRestante[i - 1], polylineRestante[i]);
+      }
+    } else if (posicao && alvo) {
+      metros = distanciaMetros(posicao, alvo);
+    } else if (typeof distanciaKm === "number") {
+      metros = distanciaKm * 1000;
+    }
+
     return metros !== null ? formatarDistancia(metros) : "--";
-  }, [rota, distanciaKm]);
+  }, [polylineRestante, posicao, alvo, distanciaKm]);
 
   const minutosRestantes = useMemo(() => {
-    if (rota?.duracao_s) return Math.max(1, Math.round(rota.duracao_s / 60));
+    if (rota?.duracao_s) {
+      return Math.max(1, Math.round((rota.duracao_s * fracaoRestante) / 60));
+    }
     return typeof minutos === "number" ? minutos : null;
-  }, [rota, minutos]);
+  }, [rota, minutos, fracaoRestante]);
 
   const [agora, setAgora] = useState(() => Date.now());
 
@@ -681,7 +710,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   avisoLimiteChegadaTextoTempo: {
-    color: "#F6D77A",
+    color: "#C2410C",
     fontSize: 13,
     fontWeight: "700",
     textAlign: "center",
