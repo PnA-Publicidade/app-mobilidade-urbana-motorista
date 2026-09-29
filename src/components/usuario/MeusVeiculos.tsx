@@ -1,4 +1,4 @@
-// CODEX: 867 linhas alteradas; torna o cadastro de veículos funcional e adiciona um gerador exclusivo de desenvolvimento.
+// CODEX: 0 linhas alteradas; adapta cadastro de veículos a teclado, largura e rotação. Remover após validação ou commit.
 import { api } from "@/Services/api";
 import { Text, TextInput } from "@/components/common/Texto";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Animated,
   BackHandler,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,10 +14,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-const { width } = Dimensions.get("window");
 
 interface Props {
   visible: boolean;
@@ -119,6 +117,7 @@ export default function MeusVeiculos({
   duration = 200,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const [translateX] = useState(() => new Animated.Value(width));
   const [overlayOpacity] = useState(() => new Animated.Value(0));
   const [isMounted, setIsMounted] = useState(visible);
@@ -203,7 +202,7 @@ export default function MeusVeiculos({
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [duration, overlayOpacity, translateX, visible]);
+  }, [duration, overlayOpacity, translateX, visible, width]);
 
   const enviar = async (dados: FormularioVeiculo) => {
     setSalvando(true);
@@ -441,6 +440,7 @@ function Formulario({
           { paddingBottom: Math.max(insetsBottom, 24) },
         ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         <Text style={styles.secaoTitulo}>Tipo de veículo</Text>
         <View style={styles.categorias}>
@@ -725,7 +725,12 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
   },
-  botaoDevTexto: { color: "#5B21B6", fontWeight: "700", textAlign: "center" },
+  botaoDevTexto: {
+    flexShrink: 1,
+    color: "#5B21B6",
+    fontWeight: "700",
+    textAlign: "center",
+  },
   botaoSecundario: {
     borderWidth: 1,
     borderColor: "#CCC",
@@ -736,11 +741,18 @@ const styles = StyleSheet.create({
   botaoSecundarioTexto: { fontWeight: "700", color: "#333" },
   botaoDesabilitado: { opacity: 0.55 },
   formularioContainer: { flex: 1 },
-  formulario: { padding: 18, gap: 14 },
+  formulario: {
+    padding: 18,
+    gap: 14,
+    width: "100%",
+    maxWidth: 640,
+    alignSelf: "center",
+  },
   secaoTitulo: { fontSize: 15, fontWeight: "700", color: "#222" },
-  categorias: { flexDirection: "row", gap: 8 },
+  categorias: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   categoria: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 90,
     minHeight: 42,
     borderRadius: 10,
     borderWidth: 1,
@@ -751,12 +763,13 @@ const styles = StyleSheet.create({
   categoriaAtiva: { backgroundColor: "#FFF4B2", borderColor: "#D9B500" },
   categoriaTexto: { color: "#666", fontWeight: "600" },
   categoriaTextoAtivo: { color: "#111", fontWeight: "800" },
-  camposLinha: { flexDirection: "row", gap: 10 },
+  camposLinha: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   campo: { gap: 6 },
-  campoMetade: { flex: 1 },
+  campoMetade: { flexGrow: 1, flexBasis: 140, minWidth: 0 },
   campoRotulo: { fontSize: 13, color: "#444", fontWeight: "600" },
   input: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#D5D5D5",
