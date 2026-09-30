@@ -35,7 +35,7 @@ import { useSharedValue } from "react-native-reanimated";
 
 // altura aproximada da folha de corrida, pra rota não ser enquadrada atrás dela
 const ALTURA_FOLHA_CORRIDA = 330;
-const ALTURA_FOLHA_ESPERA = 430;
+const ALTURA_FOLHA_ESPERA = 340;
 
 export default function Home() {
   const { user, loading: authLoading } = useAuth();
@@ -64,6 +64,8 @@ export default function Home() {
     avancar,
     cancelarCorrida,
     cancelarNaoComparecimento,
+    recusarNovas,
+    alternarRecusarNovas,
   } = useDespachoMotorista();
 
   const statusNavegacao =
@@ -72,6 +74,9 @@ export default function Home() {
       ? corrida.status_corrida
       : null;
   const statusComNavegacao = statusNavegacao !== null;
+  // no embarque a tela é a do 99: pílula do endereço no topo no lugar do
+  // menu e do atalho de ganhos
+  const esperandoNoEmbarque = corrida?.status_corrida === "motorista_chegou";
   const alvoNavegacao = obterAlvoDaCorrida(corrida);
   const { rota: rotaDaCorrida, alvo: alvoDaCorrida } = useRotaDaCorrida(
     statusComNavegacao ? null : corrida,
@@ -241,7 +246,6 @@ export default function Home() {
 
       {corrida?.status_corrida === "motorista_chegou" && (
         <CorridaEmAndamento
-          status={corrida.status_corrida}
           origem={
             corrida.corrida_destinos?.find((d) => d.tipo === "origem")?.endereco
           }
@@ -249,13 +253,15 @@ export default function Home() {
             corrida.corrida_destinos?.find((d) => d.tipo === "destino")
               ?.endereco
           }
+          categoria={corrida.produto?.nome ?? null}
           passageiro={passageiro}
-          minutos={chegada?.minutos ?? null}
-          distanciaKm={chegada?.distancia_km ?? null}
           ocupado={ocupado}
           espera={espera}
+          recusarNovas={recusarNovas}
           onAvancar={avancar}
+          onCancelar={cancelarCorrida}
           onCancelarNaoComparecimento={cancelarNaoComparecimento}
+          onAlternarRecusarNovas={alternarRecusarNovas}
         />
       )}
 
@@ -288,8 +294,11 @@ export default function Home() {
         visible={ganhoModalVisivel}
         setVisible={setGanhoModalVisivel}
         corridaAtivaId={corrida?.id ?? null}
+        ocultarAtalho={esperandoNoEmbarque}
       />
-      {!statusComNavegacao && <TopMenu onMenuPress={handleMenuOpen} />}
+      {!statusComNavegacao && !esperandoNoEmbarque && (
+        <TopMenu onMenuPress={handleMenuOpen} />
+      )}
 
       {/* Backdrop para SideMenu */}
       {menuVisible && (
