@@ -2,11 +2,12 @@
 import CentralAjuda from "@/components/CentralAjuda";
 import type { PassageiroDaCorrida } from "@/components/CorridaEmAndamento";
 import { Text } from "@/components/common/Texto";
+import { reputacaoPassageiro } from "@/domain/reputacaoPassageiro";
+import type { ResultadoCancelamento } from "@/hooks/useDespachoMotorista";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Linking,
   Modal,
@@ -24,19 +25,28 @@ interface Props {
   origem?: string | null;
   destino?: string | null;
   ocupado?: boolean;
+  categoria?: string | null;
+  recusarNovas?: boolean;
+  onAlternarRecusarNovas?: () => void;
+  // no embarque, depois de 3 min de espera (regra do backend), o motorista
+  // pode encerrar por ausência e receber a taxa
+  podeRegistrarAusencia?: boolean;
+  onRegistrarAusencia?: () => Promise<ResultadoCancelamento>;
   onClose: () => void;
-  onCancelar: (motivo: string) => Promise<boolean>;
+  onCancelar: (motivo: string) => Promise<ResultadoCancelamento>;
 }
+
+const MOTIVO_AUSENCIA = "Passageiro não apareceu";
 
 const MOTIVOS_CANCELAMENTO = [
   "Embarque longe",
   "Endereço errado",
   "Passageiro chamou para um terceiro",
   "Passageiro pediu para cancelar",
-  "Estava em outra corrida",
+  "Estava numa corrida",
   "Poucos assentos",
   "Muita bagagem",
-  "Passageiro menor de idade",
+  "Menor de idade",
   "Área de risco",
   "Local de embarque errado",
   "Outro",
@@ -48,6 +58,11 @@ export default function MaisCorridaAtiva({
   origem,
   destino,
   ocupado = false,
+  categoria,
+  recusarNovas = false,
+  onAlternarRecusarNovas,
+  podeRegistrarAusencia = false,
+  onRegistrarAusencia,
   onClose,
   onCancelar,
 }: Props) {
@@ -57,12 +72,20 @@ export default function MaisCorridaAtiva({
   const [confirmacaoVisivel, setConfirmacaoVisivel] = useState(false);
   const [ajudaVisivel, setAjudaVisivel] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [politicaAberta, setPoliticaAberta] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const motivos =
+    podeRegistrarAusencia && onRegistrarAusencia
+      ? [MOTIVO_AUSENCIA, ...MOTIVOS_CANCELAMENTO]
+      : MOTIVOS_CANCELAMENTO;
 
   const fechar = () => {
     if (cancelando) return;
     setTela("mais");
     setMotivo(null);
     setConfirmacaoVisivel(false);
+    setPoliticaAberta(false);
+    setErro(null);
     setAjudaVisivel(false);
     onClose();
   };
@@ -70,6 +93,8 @@ export default function MaisCorridaAtiva({
   const voltar = () => {
     if (confirmacaoVisivel) {
       setConfirmacaoVisivel(false);
+      setPoliticaAberta(false);
+      setErro(null);
       return;
     }
     if (tela === "motivos") {
@@ -87,28 +112,29 @@ export default function MaisCorridaAtiva({
 
   const escolherMotivo = (item: string) => {
     setMotivo(item);
+    setErro(null);
     setConfirmacaoVisivel(true);
   };
 
   const confirmarCancelamento = async () => {
     if (motivo === null || cancelando || ocupado) return;
     setCancelando(true);
-    const cancelada = await onCancelar(motivo);
+    setErro(null);
+    const resultado =
+      motivo === MOTIVO_AUSENCIA && onRegistrarAusencia
+        ? await onRegistrarAusencia()
+        : await onCancelar(motivo);
     setCancelando(false);
-    if (cancelada) {
-      setTela("mais");
-      setMotivo(null);
-      setConfirmacaoVisivel(false);
-      setAjudaVisivel(false);
-      onClose();
+    if (!resultado.ok) {
+      setErro(resultado.mensagem);
+      return;
     }
-  };
-
-  const mostrarPolitica = () => {
-    Alert.alert(
-      "Política de cancelamento",
-      "O motivo será registrado no histórico. Ao confirmar, a corrida termina e você volta a ficar disponível para novas solicitações.",
-    );
+    setTela("mais");
+    setMotivo(null);
+    setConfirmacaoVisivel(false);
+    setPoliticaAberta(false);
+    setAjudaVisivel(false);
+    onClose();
   };
 
   return (
@@ -130,9 +156,8 @@ export default function MaisCorridaAtiva({
             <Ionicons name="chevron-back" size={26} color="#111" />
           </TouchableOpacity>
           <Text style={styles.tituloCabecalho}>
-            {tela === "mais" ? "Mais" : "Cancelar corrida"}
+            {tela === "mais" ? "Mais" : ""}
           </Text>
-          <View style={styles.espacoCabecalho} />
         </View>
 
         {tela === "mais" ? (
@@ -140,7 +165,9 @@ export default function MaisCorridaAtiva({
             contentContainerStyle={styles.conteudoMais}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.etiquetaCategoria}>Corrida atual</Text>
+            <Text style={styles.etiquetaCategoria}>
+              {categoria ?? "Corrida atual"}
+            </Text>
 
             <View style={styles.cartaoCorrida}>
               <View style={styles.linhaPassageiro}>
@@ -156,16 +183,14 @@ export default function MaisCorridaAtiva({
                 )}
 
                 <View style={styles.dadosPassageiro}>
-                  <Text style={styles.nomePassageiro}>
+                  <Text style={styles.nomePassageiro} numberOfLines={1}>
                     {passageiro?.nome ?? "Passageiro"}
                   </Text>
                   <Text style={styles.reputacao}>
-                    {typeof passageiro?.nota === "number"
-                      ? passageiro.nota.toFixed(2).replace(".", ",")
-                      : "0,0"}
-                    {" ★ · "}
-                    {passageiro?.corridas ?? 0}{" "}
-                    {passageiro?.corridas === 1 ? "corrida" : "corridas"}
+                    {reputacaoPassageiro(
+                      passageiro?.nota,
+                      passageiro?.corridas,
+                    )}
                   </Text>
                 </View>
 
@@ -207,7 +232,7 @@ export default function MaisCorridaAtiva({
                   onPress={() => setTela("motivos")}
                 >
                   <Text style={styles.botaoSecundarioTexto}>
-                    Cancelar corrida
+                    Cancelar Corrida
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -220,6 +245,29 @@ export default function MaisCorridaAtiva({
                 </TouchableOpacity>
               </View>
             </View>
+
+            {onAlternarRecusarNovas && (
+              <TouchableOpacity
+                style={[
+                  styles.botaoRecusarNovas,
+                  recusarNovas && styles.botaoRecusarNovasAtivo,
+                ]}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: recusarNovas }}
+                onPress={onAlternarRecusarNovas}
+              >
+                <Text style={styles.botaoRecusarNovasTexto}>
+                  {recusarNovas
+                    ? "Voltar a aceitar novas corridas"
+                    : "Recusar novas corridas"}
+                </Text>
+                {recusarNovas && (
+                  <Text style={styles.botaoRecusarNovasApoio}>
+                    Você fica offline quando esta corrida terminar
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
           </ScrollView>
         ) : (
           <ScrollView
@@ -227,9 +275,9 @@ export default function MaisCorridaAtiva({
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.tituloMotivos}>
-              Por favor, conte o motivo do cancelamento
+              Por favor, nos conte o motivo do cancelamento
             </Text>
-            {MOTIVOS_CANCELAMENTO.map((item) => (
+            {motivos.map((item) => (
               <TouchableOpacity
                 key={item}
                 style={[
@@ -239,8 +287,14 @@ export default function MaisCorridaAtiva({
                 activeOpacity={0.7}
                 onPress={() => escolherMotivo(item)}
               >
-                <Text style={styles.motivoTexto}>{item}</Text>
-                <Ionicons name="chevron-forward" size={18} color="#AAA" />
+                <View style={styles.motivoTextos}>
+                  <Text style={styles.motivoTexto}>{item}</Text>
+                  {item === MOTIVO_AUSENCIA && (
+                    <Text style={styles.motivoApoio}>
+                      Encerra a corrida por ausência
+                    </Text>
+                  )}
+                </View>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -250,7 +304,11 @@ export default function MaisCorridaAtiva({
           <View style={styles.confirmacaoCamada}>
             <Pressable
               style={styles.confirmacaoFundo}
-              onPress={() => setConfirmacaoVisivel(false)}
+              onPress={() => {
+                setConfirmacaoVisivel(false);
+                setPoliticaAberta(false);
+                setErro(null);
+              }}
             />
             <View
               style={[
@@ -261,21 +319,43 @@ export default function MaisCorridaAtiva({
               <Text style={styles.confirmacaoTitulo}>
                 Deseja mesmo cancelar esta corrida?
               </Text>
-              <Text style={styles.confirmacaoMotivo}>{motivo}</Text>
               <TouchableOpacity
                 style={styles.politicaLinha}
-                onPress={mostrarPolitica}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: politicaAberta }}
+                onPress={() => setPoliticaAberta((aberta) => !aberta)}
               >
                 <Text style={styles.politicaTexto}>
                   Política de cancelamento
                 </Text>
-                <Ionicons name="chevron-forward" size={18} color="#777" />
+                <Ionicons
+                  name={politicaAberta ? "chevron-down" : "chevron-forward"}
+                  size={16}
+                  color="#777"
+                />
               </TouchableOpacity>
+              {politicaAberta && (
+                <Text style={styles.politicaDetalhe}>
+                  {motivo === MOTIVO_AUSENCIA
+                    ? "Você esperou o tempo mínimo no embarque. A corrida é encerrada por ausência e a tarifa base da categoria, quando houver, fica para você como taxa."
+                    : "O motivo fica registrado na corrida e o passageiro é avisado na hora. Se ele não aparecer depois de 3 minutos de espera no embarque, escolha “Passageiro não apareceu”."}
+                </Text>
+              )}
+              {erro && (
+                <View style={styles.erroCaixa} accessibilityRole="alert">
+                  <Ionicons name="alert-circle" size={18} color="#B42318" />
+                  <Text style={styles.erroTexto}>{erro}</Text>
+                </View>
+              )}
               <View style={styles.confirmacaoAcoes}>
                 <TouchableOpacity
                   style={[styles.botaoConfirmacao, styles.botaoNaoCancelar]}
                   disabled={cancelando}
-                  onPress={() => setConfirmacaoVisivel(false)}
+                  onPress={() => {
+                    setConfirmacaoVisivel(false);
+                    setPoliticaAberta(false);
+                    setErro(null);
+                  }}
                 >
                   <Text style={styles.botaoNaoCancelarTexto}>Não cancelar</Text>
                 </TouchableOpacity>
@@ -330,9 +410,8 @@ const styles = StyleSheet.create({
     color: "#111",
     fontSize: 20,
     fontWeight: "700",
-    textAlign: "center",
+    marginLeft: 6,
   },
-  espacoCabecalho: { width: 44 },
   conteudoMais: { padding: 16, paddingBottom: 40 },
   etiquetaCategoria: {
     alignSelf: "flex-start",
@@ -397,6 +476,29 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   acoesCartao: { flexDirection: "row", gap: 10, marginTop: 4 },
+  botaoRecusarNovas: {
+    minHeight: 56,
+    marginTop: 28,
+    borderRadius: 14,
+    backgroundColor: "#FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  botaoRecusarNovasAtivo: { backgroundColor: "#FFF4D6" },
+  botaoRecusarNovasTexto: {
+    color: "#111",
+    fontSize: 17,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  botaoRecusarNovasApoio: {
+    color: "#8A6D1A",
+    fontSize: 12,
+    marginTop: 2,
+    textAlign: "center",
+  },
   botaoSecundario: {
     flex: 1,
     minHeight: 48,
@@ -429,7 +531,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   motivoSelecionado: { backgroundColor: "#EAF2F8", borderRadius: 8 },
-  motivoTexto: { flex: 1, color: "#252525", fontSize: 16 },
+  motivoTextos: { flex: 1, paddingVertical: 8 },
+  motivoTexto: { color: "#252525", fontSize: 16 },
+  motivoApoio: { color: "#6B7280", fontSize: 12, marginTop: 2 },
   confirmacaoCamada: {
     position: "absolute",
     top: 0,
@@ -460,7 +564,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 27,
   },
-  confirmacaoMotivo: { color: "#666", fontSize: 14, marginTop: 6 },
+
   politicaLinha: {
     flexDirection: "row",
     alignItems: "center",
@@ -470,6 +574,22 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   politicaTexto: { color: "#555", fontSize: 13 },
+  politicaDetalhe: {
+    color: "#555",
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  erroCaixa: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: "#FEF3F2",
+    padding: 12,
+    marginBottom: 8,
+  },
+  erroTexto: { flex: 1, color: "#B42318", fontSize: 14, lineHeight: 19 },
   confirmacaoAcoes: { flexDirection: "row", gap: 12, marginTop: 8 },
   botaoConfirmacao: {
     flex: 1,

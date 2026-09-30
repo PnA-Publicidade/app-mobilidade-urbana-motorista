@@ -24,7 +24,9 @@ import {
   formatarHorario,
 } from "@/domain/navegacao";
 import type { Coordenada } from "@/domain/rotaDaCorrida";
+import { reputacaoPassageiro } from "@/domain/reputacaoPassageiro";
 import { useCarregamentoMapa } from "@/hooks/useCarregamentoMapa";
+import type { ResultadoCancelamento } from "@/hooks/useDespachoMotorista";
 import { useNavegacaoDaCorrida } from "@/hooks/useNavegacaoDaCorrida";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -60,7 +62,7 @@ interface Props {
   distanciaKm?: number | null;
   ocupado?: boolean;
   onAvancar: (acao: AcaoCorrida) => void;
-  onCancelar: (motivo: string) => Promise<boolean>;
+  onCancelar: (motivo: string) => Promise<ResultadoCancelamento>;
 }
 
 const PASSOS: Record<
@@ -574,13 +576,7 @@ export default function NavegacaoAtiva({
                 {passageiro?.nome ?? "Passageiro"}
               </Text>
               <Text style={styles.passageiroApoio}>
-                ★{" "}
-                {typeof passageiro?.nota === "number"
-                  ? passageiro.nota.toFixed(2).replace(".", ",")
-                  : "0,0"}
-                {" · "}
-                {passageiro?.corridas ?? 0}{" "}
-                {passageiro?.corridas === 1 ? "corrida" : "corridas"}
+                {reputacaoPassageiro(passageiro?.nota, passageiro?.corridas)}
               </Text>
             </View>
 
