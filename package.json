@@ -1,8 +1,8 @@
 {
-  "name": "app-mobilidade-urbana-frontend-motorista",
+  "name": "aplicativo-mobilidade-urbana-motorista",
   "main": "expo-router/entry",
   "version": "1.0.0",
-  "_codexComment": "CODEX: 17 linhas alteradas neste arquivo; alinha os módulos nativos e adiciona seleção de documentos.",
+  "_codexComment": "CODEX: 2 linhas adicionadas e 2 removidas; atualiza o nome do pacote do motorista. Remover após validação/commit.",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
