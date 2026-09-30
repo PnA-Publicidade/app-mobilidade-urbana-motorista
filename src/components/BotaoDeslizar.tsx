@@ -1,4 +1,4 @@
-// CODEX: 0 linhas alteradas; protege o deslize horizontal e mantém o rótulo legível em telas estreitas. Remover após validação ou commit.
+// CODEX: 6 linhas alteradas (4 adicionadas, 2 removidas); permite contraste próprio no rótulo do deslizador. Remover após validação/commit.
 import { Text } from "@/components/common/Texto";
 import { Feather } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
@@ -16,6 +16,7 @@ const MARGEM = 4;
 interface props {
   rotulo: string;
   cor: string;
+  corTexto?: string;
   onConfirmar: () => void;
   desabilitado?: boolean;
 }
@@ -23,6 +24,7 @@ interface props {
 export default function BotaoDeslizar({
   rotulo,
   cor,
+  corTexto = "#FFF",
   onConfirmar,
   desabilitado = false,
 }: props) {
@@ -129,7 +131,7 @@ export default function BotaoDeslizar({
         style={[styles.rotuloContainer, { opacity: opacidadeRotulo }]}
         pointerEvents="none"
       >
-        <Text style={styles.rotulo} numberOfLines={2}>
+        <Text style={[styles.rotulo, { color: corTexto }]} numberOfLines={2}>
           {rotulo}
         </Text>
       </Animated.View>

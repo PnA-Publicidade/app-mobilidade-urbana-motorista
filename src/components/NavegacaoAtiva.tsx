@@ -12,7 +12,7 @@ import BotaoDeslizar from "@/components/BotaoDeslizar";
 import MaisCorridaAtiva from "@/components/MaisCorridaAtiva";
 import { Text } from "@/components/common/Texto";
 import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-// CODEX: 0 linhas alteradas; dimensiona a folha pelo conteúdo e permite rolar em telas pequenas. Remover após validação ou commit.
+// CODEX: 8 linhas alteradas (5 adicionadas, 3 removidas); deixa a finalização da navegação amarela e legível. Remover após validação/commit.
 import type {
   AcaoCorrida,
   PassageiroDaCorrida,
@@ -65,7 +65,7 @@ interface Props {
 
 const PASSOS: Record<
   Props["status"],
-  { acao: AcaoCorrida; rotulo: string; cor: string }
+  { acao: AcaoCorrida; rotulo: string; cor: string; corTexto?: string }
 > = {
   aceita: {
     acao: "cheguei",
@@ -75,7 +75,8 @@ const PASSOS: Record<
   em_andamento: {
     acao: "finalizar",
     rotulo: "Finalizar corrida",
-    cor: "#2F6BFF",
+    cor: "#FFCB2F",
+    corTexto: "#111111",
   },
 };
 
@@ -598,6 +599,7 @@ export default function NavegacaoAtiva({
           <BotaoDeslizar
             rotulo={passo.rotulo}
             cor={passo.cor}
+            corTexto={passo.corTexto}
             desabilitado={ocupado}
             onConfirmar={() => onAvancar(passo.acao)}
           />

@@ -1,4 +1,4 @@
-// CODEX: 0 linhas alteradas; mantém o embarque utilizável com telas pequenas e fontes maiores. Remover após validação ou commit.
+// CODEX: 7 linhas alteradas (5 adicionadas, 2 removidas); deixa a finalização amarela e legível. Remover após validação/commit.
 import BotaoDeslizar from "@/components/BotaoDeslizar";
 import { Text } from "@/components/common/Texto";
 import { ResumoEspera, calcularContadorEspera } from "@/domain/contadorEspera";
@@ -45,6 +45,7 @@ const PASSOS: Record<
     acao: AcaoCorrida;
     rotulo: string;
     cor: string;
+    corTexto?: string;
     titulo: string;
     apoio: string;
   }
@@ -66,7 +67,8 @@ const PASSOS: Record<
   em_andamento: {
     acao: "finalizar",
     rotulo: "Finalizar corrida",
-    cor: "#2F6BFF",
+    cor: "#FFCB2F",
+    corTexto: "#111111",
     titulo: "Em viagem",
     apoio: "Deslize ao chegar no destino",
   },
@@ -253,6 +255,7 @@ export default function CorridaEmAndamento({
         <BotaoDeslizar
           rotulo={passo.rotulo}
           cor={passo.cor}
+          corTexto={passo.corTexto}
           desabilitado={ocupado}
           onConfirmar={() => onAvancar(passo.acao)}
         />
