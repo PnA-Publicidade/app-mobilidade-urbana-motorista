@@ -38,6 +38,7 @@ export interface CorridaEmCurso {
   corrida_financeiro?: {
     metodo_pagamento: string | null;
   } | null;
+  produto?: { id: number; nome: string } | null;
 }
 
 export interface PassageiroDaCorrida {
@@ -48,6 +49,12 @@ export interface PassageiroDaCorrida {
   nota: number | null;
   corridas: number;
 }
+
+// o cancelamento acontece dentro da tela Mais (um Modal), que cobre os
+// toasts: quem chama mostra a mensagem de erro ali mesmo
+export type ResultadoCancelamento =
+  | { ok: true }
+  | { ok: false; mensagem: string };
 
 export interface ChegadaEstimada {
   minutos: number;
@@ -253,6 +260,43 @@ export function useDespachoMotorista() {
     },
     [mostrarToast, posicaoAtual],
   );
+
+  // "Recusar novas corridas" (tela Mais do 99): ao fim da corrida atual o
+  // motorista sai do ar em vez de voltar a receber ofertas. Espera o
+  // `ocupado` baixar porque finalizar/cancelar ainda sincronizam a situação
+  // com o servidor, e essa resposta (disponível) sobrescreveria o offline.
+  const [recusarNovas, setRecusarNovas] = useState(false);
+  const recusarNovasRef = useRef(false);
+  const idCorridaAnterior = useRef<number | null>(null);
+  const corridaEncerrada = useRef(false);
+
+  const alternarRecusarNovas = useCallback(() => {
+    const novo = !recusarNovasRef.current;
+    recusarNovasRef.current = novo;
+    setRecusarNovas(novo);
+    mostrarToast({
+      tipo: "info",
+      titulo: novo ? "Novas corridas recusadas" : "Novas corridas liberadas",
+      mensagem: novo
+        ? "Você fica offline assim que esta corrida terminar."
+        : "Ao terminar esta corrida você continua recebendo ofertas.",
+      chave: `recusar-novas:${novo}`,
+    });
+  }, [mostrarToast]);
+
+  useEffect(() => {
+    if (idCorridaAnterior.current !== null && corrida === null) {
+      corridaEncerrada.current = true;
+    }
+    idCorridaAnterior.current = corrida?.id ?? null;
+
+    if (!corridaEncerrada.current || ocupado) return;
+    corridaEncerrada.current = false;
+
+    if (!recusarNovasRef.current) return;
+    recusarNovasRef.current = false;
+    void alternarDisponibilidade(false).then(() => setRecusarNovas(false));
+  }, [corrida, ocupado, alternarDisponibilidade]);
 
   useEffect(() => {
     if (!appAtivo || !disponivel || corrida !== null) return;
@@ -530,7 +574,9 @@ export function useDespachoMotorista() {
           },
           finalizar: {
             titulo: "Corrida finalizada",
-            mensagem: "Você continua online e pode receber novas ofertas.",
+            mensagem: recusarNovasRef.current
+              ? "Como você pediu, não vai receber novas corridas agora."
+              : "Você continua online e pode receber novas ofertas.",
           },
         } as const;
         const aviso = avisos[acao];
@@ -576,53 +622,72 @@ export function useDespachoMotorista() {
     ],
   );
 
-  const cancelarNaoComparecimento = useCallback(async () => {
-    if (corrida === null || ocupado) return;
-    setOcupado(true);
-    try {
-      const atual = await posicaoAtual();
-      if (atual === null) throw new Error("Localização indisponível.");
-      await api.post("/motorista/posicao", atual);
-      await api.post(`/motorista/corridas/${corrida.id}/cancelar`, {
-        tipo: "nao_comparecimento",
-        motivo: "Passageiro não compareceu ao embarque",
-      });
-      aplicarCorrida(null, false);
-      setEspera(null);
-      setChegada(null);
-      setPassageiro(null);
-      setDisponivel(true);
-      setGatilho((atual) => atual + 1);
-      mostrarToast({
-        tipo: "info",
-        titulo: "Corrida cancelada por ausência",
-        mensagem: "A tarifa base foi registrada como taxa de cancelamento.",
-      });
-      await sincronizarSituacao();
-    } catch (falha) {
-      mostrarToast({
-        tipo: "error",
-        titulo: "Não foi possível cancelar por ausência",
-        mensagem: mensagemDoErro(
-          falha,
-          "Confira sua localização e tente novamente.",
-        ),
-      });
-    } finally {
-      setOcupado(false);
-    }
-  }, [
-    corrida,
-    ocupado,
-    posicaoAtual,
-    aplicarCorrida,
-    mostrarToast,
-    sincronizarSituacao,
-  ]);
+  const cancelarNaoComparecimento =
+    useCallback(async (): Promise<ResultadoCancelamento> => {
+      if (corrida === null || ocupado) {
+        return { ok: false, mensagem: "Aguarde a ação anterior terminar." };
+      }
+      setOcupado(true);
+      try {
+        const atual = await posicaoAtual();
+        if (atual === null) {
+          return {
+            ok: false,
+            mensagem:
+              "Ative o GPS e permita o acesso à localização para registrar a ausência.",
+          };
+        }
+        await api.post("/motorista/posicao", atual);
+        const { data: cancelada } = await api.post<{
+          corrida_financeiro?: { taxa_cancelamento?: number | string | null };
+        }>(`/motorista/corridas/${corrida.id}/cancelar`, {
+          tipo: "nao_comparecimento",
+          motivo: "Passageiro não compareceu ao embarque",
+        });
+        const taxa = Number(
+          cancelada?.corrida_financeiro?.taxa_cancelamento ?? 0,
+        );
+        aplicarCorrida(null, false);
+        setEspera(null);
+        setChegada(null);
+        setPassageiro(null);
+        setDisponivel(true);
+        setGatilho((atual) => atual + 1);
+        mostrarToast({
+          tipo: "info",
+          titulo: "Corrida cancelada por ausência",
+          mensagem:
+            taxa > 0
+              ? `Taxa de ausência de R$ ${taxa.toFixed(2).replace(".", ",")} registrada para você.`
+              : "Esta categoria não tem taxa de ausência.",
+        });
+        await sincronizarSituacao();
+        return { ok: true };
+      } catch (falha) {
+        return {
+          ok: false,
+          mensagem: mensagemDoErro(
+            falha,
+            "Confira sua localização e tente novamente.",
+          ),
+        };
+      } finally {
+        setOcupado(false);
+      }
+    }, [
+      corrida,
+      ocupado,
+      posicaoAtual,
+      aplicarCorrida,
+      mostrarToast,
+      sincronizarSituacao,
+    ]);
 
   const cancelarCorrida = useCallback(
-    async (motivo: string): Promise<boolean> => {
-      if (corrida === null || ocupado || motivo.trim() === "") return false;
+    async (motivo: string): Promise<ResultadoCancelamento> => {
+      if (corrida === null || ocupado || motivo.trim() === "") {
+        return { ok: false, mensagem: "Aguarde a ação anterior terminar." };
+      }
 
       setOcupado(true);
       try {
@@ -639,18 +704,16 @@ export function useDespachoMotorista() {
         recusadas.current.clear();
         setGatilho((atual) => atual + 1);
         await sincronizarSituacao();
-        return true;
+        return { ok: true };
       } catch (falha) {
-        mostrarToast({
-          tipo: "error",
-          titulo: "Não foi possível cancelar a corrida",
+        await carregarCorridaAtual();
+        return {
+          ok: false,
           mensagem: mensagemDoErro(
             falha,
             "Confira sua conexão e tente novamente.",
           ),
-        });
-        await carregarCorridaAtual();
-        return false;
+        };
       } finally {
         setOcupado(false);
       }
@@ -659,7 +722,6 @@ export function useDespachoMotorista() {
       corrida,
       ocupado,
       aplicarCorrida,
-      mostrarToast,
       sincronizarSituacao,
       carregarCorridaAtual,
     ],
@@ -684,5 +746,7 @@ export function useDespachoMotorista() {
     avancar,
     cancelarCorrida,
     cancelarNaoComparecimento,
+    recusarNovas,
+    alternarRecusarNovas,
   };
 }
