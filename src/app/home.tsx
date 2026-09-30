@@ -1,5 +1,5 @@
 // app/home.tsx
-// CODEX: 81 linhas alteradas neste arquivo; conecta navegação, detalhes e cancelamento da corrida ativa.
+// CODEX: 168 linhas adicionadas e 68 removidas no diff atual; integra o simulador local ao fluxo do motorista. Remover após validação/commit.
 import AvaliarPassageiro from "@/components/AvaliarPassageiro";
 import CorridaEmAndamento from "@/components/CorridaEmAndamento";
 import NavegacaoAtiva from "@/components/NavegacaoAtiva";
@@ -13,11 +13,13 @@ import SolicitacoesCorrida from "@/components/SolicitacoesCorrida";
 import SolicitarCorrida from "@/components/SolicitarCorrida";
 import TopMenu from "@/components/TopMenu";
 import { Text } from "@/components/common/Texto";
+import SimuladorCorridaMotorista from "@/components/desenvolvimento/SimuladorCorridaMotorista";
 import { useAuth } from "@/context/AuthProvider";
 import { useAvaliacaoPendente } from "@/hooks/useAvaliacaoPendente";
 import { useDespachoMotorista } from "@/hooks/useDespachoMotorista";
 import { useRotaDaCorrida } from "@/hooks/useRotaDaCorrida";
-import { alvoDaCorrida as obterAlvoDaCorrida } from "@/domain/rotaDaCorrida";
+import { useSimuladorCorridaMotorista } from "@/hooks/useSimuladorCorridaMotorista";
+import { proximoPontoDaCorrida } from "@/domain/rotaDaCorrida";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -45,6 +47,7 @@ export default function Home() {
   const [region, setRegion] = useState<Region | null>(null);
   const [destinationModalVisible, setDestinationModalVisible] = useState(false);
   const [solicitacoesCorrida, setSolicitacoesCorrida] = useState(false);
+  const simuladorCorrida = useSimuladorCorridaMotorista();
   const {
     disponivel,
     oferta,
@@ -66,21 +69,52 @@ export default function Home() {
     cancelarNaoComparecimento,
     recusarNovas,
     alternarRecusarNovas,
-  } = useDespachoMotorista();
+  } = useDespachoMotorista(simuladorCorrida.ativa);
+
+  const dadosSimulados = simuladorCorrida.dados;
+  const corridaExibida = simuladorCorrida.ativa
+    ? (dadosSimulados?.corrida ?? null)
+    : corrida;
+  const ofertaExibida = simuladorCorrida.ativa
+    ? (dadosSimulados?.oferta ?? null)
+    : oferta;
+  const chegadaExibida = simuladorCorrida.ativa
+    ? (dadosSimulados?.chegada ?? null)
+    : chegada;
+  const esperaExibida = simuladorCorrida.ativa
+    ? (dadosSimulados?.espera ?? null)
+    : espera;
+  const passageiroExibido = simuladorCorrida.ativa
+    ? (dadosSimulados?.passageiro ?? null)
+    : passageiro;
+  const posicaoExibida = simuladorCorrida.ativa
+    ? (dadosSimulados?.posicao ?? null)
+    : posicao;
+  const regiaoSimulada =
+    simuladorCorrida.ativa && posicaoExibida
+      ? {
+          ...posicaoExibida,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }
+      : null;
+  const ocupadoExibido = simuladorCorrida.ativa ? false : ocupado;
+  const disponivelExibido = simuladorCorrida.ativa ? false : disponivel;
 
   const statusNavegacao =
-    corrida?.status_corrida === "aceita" ||
-    corrida?.status_corrida === "em_andamento"
-      ? corrida.status_corrida
+    corridaExibida?.status_corrida === "aceita" ||
+    corridaExibida?.status_corrida === "em_andamento"
+      ? corridaExibida.status_corrida
       : null;
   const statusComNavegacao = statusNavegacao !== null;
   // no embarque a tela é a do 99: pílula do endereço no topo no lugar do
   // menu e do atalho de ganhos
-  const esperandoNoEmbarque = corrida?.status_corrida === "motorista_chegou";
-  const alvoNavegacao = obterAlvoDaCorrida(corrida);
+  const esperandoNoEmbarque =
+    corridaExibida?.status_corrida === "motorista_chegou";
+  const proximoPonto = proximoPontoDaCorrida(corridaExibida);
   const { rota: rotaDaCorrida, alvo: alvoDaCorrida } = useRotaDaCorrida(
-    statusComNavegacao ? null : corrida,
-    posicao,
+    statusComNavegacao || simuladorCorrida.ativa ? null : corridaExibida,
+    simuladorCorrida.ativa ? null : posicaoExibida,
   );
 
   const {
@@ -89,6 +123,13 @@ export default function Home() {
     avaliar,
     dispensar: dispensarAvaliacao,
   } = useAvaliacaoPendente(corrida?.id ?? null);
+  const encerrarSimulacao = simuladorCorrida.encerrar;
+
+  useEffect(() => {
+    if (simuladorCorrida.ativa && (corrida !== null || oferta !== null)) {
+      encerrarSimulacao();
+    }
+  }, [corrida, oferta, simuladorCorrida.ativa, encerrarSimulacao]);
 
   // ✨ NOVO ESTADO: Armazena a região inicial do usuário (sem o ajuste de offset)
   const userInitialRegion = useRef<Region | null>(null);
@@ -188,84 +229,128 @@ export default function Home() {
       {/* 🔹 Mapa com ajuste de posicionamento */}
       {!statusComNavegacao && (
         <Map
-          region={region}
-          onRegionChange={setRegion}
-          onUserLocationFound={handleUserLocationFound}
+          region={regiaoSimulada ?? region}
+          onRegionChange={
+            simuladorCorrida.ativa ? () => undefined : setRegion
+          }
+          onUserLocationFound={
+            simuladorCorrida.ativa ? undefined : handleUserLocationFound
+          }
           bottomSheetIndex={bottomSheetIndex}
           indiceFolhaAnimado={bottomSheetAnimatedIndex}
-          alturaMinimaRodape={corrida === null ? alturaMenuInferior : 0}
+          alturaMinimaRodape={
+            corridaExibida === null ? alturaMenuInferior : 0
+          }
           isGanhoModalVisible={ganhoModalVisivel}
           // já no embarque não há o que traçar: a rota de poucos metros
           // dava a volta no quarteirão por causa da mão da rua
           rota={
-            corrida?.status_corrida === "motorista_chegou" ? [] : rotaDaCorrida
+            corridaExibida?.status_corrida === "motorista_chegou"
+              ? []
+              : rotaDaCorrida
           }
           alvo={alvoDaCorrida}
           alvoEhDestino={false}
           alturaFolha={
-            corrida?.status_corrida === "motorista_chegou"
+            corridaExibida?.status_corrida === "motorista_chegou"
               ? ALTURA_FOLHA_ESPERA
-              : corrida === null
+              : corridaExibida === null
                 ? 0
                 : ALTURA_FOLHA_CORRIDA
           }
         />
       )}
 
-      {corrida !== null && statusNavegacao !== null && (
+      {corridaExibida !== null && statusNavegacao !== null && (
         <NavegacaoAtiva
           status={statusNavegacao}
-          codigoCorrida={corrida.codigo_corrida}
-          alvo={alvoNavegacao}
-          enderecoAlvo={
-            corrida.corrida_destinos?.find(
-              (destino) =>
-                destino.tipo ===
-                (corrida.status_corrida === "aceita" ? "origem" : "destino"),
-            )?.endereco
+          codigoCorrida={corridaExibida.codigo_corrida}
+          alvo={proximoPonto?.coordenada ?? null}
+          enderecoAlvo={proximoPonto?.endereco}
+          tipoAlvo={proximoPonto?.tipo}
+          totalParadas={proximoPonto?.totalParadas}
+          paradasPendentes={proximoPonto?.paradasPendentes}
+          categoria={corridaExibida.produto?.nome ?? null}
+          recusarNovas={recusarNovas}
+          onAlternarRecusarNovas={
+            simuladorCorrida.ativa ? () => undefined : alternarRecusarNovas
           }
-          passageiro={passageiro}
+          passageiro={passageiroExibido}
           origem={
-            corrida.corrida_destinos?.find(
+            corridaExibida.corrida_destinos?.find(
               (destino) => destino.tipo === "origem",
             )?.endereco
           }
           destino={
-            corrida.corrida_destinos?.find(
+            corridaExibida.corrida_destinos?.find(
               (destino) => destino.tipo === "destino",
             )?.endereco
           }
-          metodoPagamento={corrida.corrida_financeiro?.metodo_pagamento ?? null}
-          minutos={chegada?.minutos ?? null}
-          distanciaKm={chegada?.distancia_km ?? null}
-          ocupado={ocupado}
-          onAvancar={avancar}
-          onCancelar={cancelarCorrida}
+          metodoPagamento={
+            corridaExibida.corrida_financeiro?.metodo_pagamento ?? null
+          }
+          minutos={chegadaExibida?.minutos ?? null}
+          distanciaKm={chegadaExibida?.distancia_km ?? null}
+          ocupado={ocupadoExibido}
+          posicaoSimulada={
+            simuladorCorrida.ativa ? posicaoExibida : null
+          }
+          rotaSimulada={
+            simuladorCorrida.ativa
+              ? (dadosSimulados?.rotaNavegacao ?? null)
+              : null
+          }
+          onAvancar={
+            simuladorCorrida.ativa ? simuladorCorrida.avancar : avancar
+          }
+          onCancelar={
+            simuladorCorrida.ativa
+              ? simuladorCorrida.cancelar
+              : cancelarCorrida
+          }
         />
       )}
 
-      {corrida?.status_corrida === "motorista_chegou" && (
+      {corridaExibida?.status_corrida === "motorista_chegou" && (
         <CorridaEmAndamento
           origem={
-            corrida.corrida_destinos?.find((d) => d.tipo === "origem")?.endereco
+            corridaExibida.corrida_destinos?.find(
+              (d) => d.tipo === "origem",
+            )?.endereco
           }
           destino={
-            corrida.corrida_destinos?.find((d) => d.tipo === "destino")
+            corridaExibida.corrida_destinos?.find(
+              (d) => d.tipo === "destino",
+            )
               ?.endereco
           }
-          categoria={corrida.produto?.nome ?? null}
-          passageiro={passageiro}
-          ocupado={ocupado}
-          espera={espera}
+          categoria={corridaExibida.produto?.nome ?? null}
+          passageiro={passageiroExibido}
+          ocupado={ocupadoExibido}
+          espera={esperaExibida}
           recusarNovas={recusarNovas}
-          onAvancar={avancar}
-          onCancelar={cancelarCorrida}
-          onCancelarNaoComparecimento={cancelarNaoComparecimento}
-          onAlternarRecusarNovas={alternarRecusarNovas}
+          onAvancar={
+            simuladorCorrida.ativa ? simuladorCorrida.avancar : avancar
+          }
+          onCancelar={
+            simuladorCorrida.ativa
+              ? simuladorCorrida.cancelar
+              : cancelarCorrida
+          }
+          onCancelarNaoComparecimento={
+            simuladorCorrida.ativa
+              ? simuladorCorrida.cancelar
+              : cancelarNaoComparecimento
+          }
+          onAlternarRecusarNovas={
+            simuladorCorrida.ativa ? () => undefined : alternarRecusarNovas
+          }
         />
       )}
 
-      {corridaParaAvaliar !== null && corrida === null && (
+      {corridaParaAvaliar !== null &&
+        corridaExibida === null &&
+        !simuladorCorrida.finalizada && (
         <AvaliarPassageiro
           corrida={corridaParaAvaliar}
           enviando={enviandoAvaliacao}
@@ -274,26 +359,30 @@ export default function Home() {
         />
       )}
 
-      {oferta !== null && corrida === null && (
+      {ofertaExibida !== null && corridaExibida === null && (
         <RecebendoChamada
-          key={oferta.corrida_id}
-          valor={oferta.valor_motorista}
-          distanciaAteOrigem={oferta.distancia_ate_origem_km}
-          distanciaDaCorrida={oferta.distancia_corrida_km}
-          origem={oferta.origem}
-          destino={oferta.destino}
-          paradas={oferta.paradas}
-          notaPassageiro={oferta.passageiro_nota}
-          corridasPassageiro={oferta.passageiro_corridas}
-          onAceitar={aceitar}
-          onRecusar={recusar}
+          key={ofertaExibida.corrida_id}
+          valor={ofertaExibida.valor_motorista}
+          distanciaAteOrigem={ofertaExibida.distancia_ate_origem_km}
+          distanciaDaCorrida={ofertaExibida.distancia_corrida_km}
+          origem={ofertaExibida.origem}
+          destino={ofertaExibida.destino}
+          paradas={ofertaExibida.paradas}
+          notaPassageiro={ofertaExibida.passageiro_nota}
+          corridasPassageiro={ofertaExibida.passageiro_corridas}
+          onAceitar={
+            simuladorCorrida.ativa ? simuladorCorrida.aceitar : aceitar
+          }
+          onRecusar={
+            simuladorCorrida.ativa ? simuladorCorrida.encerrar : recusar
+          }
         />
       )}
 
       <GanhoDiario
         visible={ganhoModalVisivel}
         setVisible={setGanhoModalVisivel}
-        corridaAtivaId={corrida?.id ?? null}
+        corridaAtivaId={corridaExibida?.id ?? null}
         ocultarAtalho={esperandoNoEmbarque}
       />
       {!statusComNavegacao && !esperandoNoEmbarque && (
@@ -313,13 +402,13 @@ export default function Home() {
         visible={menuVisible}
         onClose={closeMenu}
         drawerWidth={280}
-        disponivel={disponivel}
-        emCorrida={corrida !== null}
+        disponivel={disponivelExibido}
+        emCorrida={corridaExibida !== null}
         onAlternarDisponibilidade={alternarDisponibilidade}
       />
 
       {/* FolhaInferior */}
-      {oferta === null && corrida === null && (
+      {ofertaExibida === null && corridaExibida === null && (
         <>
           {menuVisible && (
             <Pressable
@@ -341,10 +430,10 @@ export default function Home() {
           <SolicitacoesCorrida
             visible={solicitacoesCorrida}
             onClose={() => setSolicitacoesCorrida(false)}
-            disponivel={disponivel}
+            disponivel={disponivelExibido}
             carregando={carregandoOfertas}
             ofertas={ofertas}
-            ocupado={ocupado}
+            ocupado={ocupadoExibido}
             onAtualizar={recarregarOfertas}
             onAceitar={(corridaId) => {
               setSolicitacoesCorrida(false);
@@ -355,14 +444,25 @@ export default function Home() {
 
           <MenuInferiorMotorista
             setSolicitacoesCorrida={() => setSolicitacoesCorrida(true)}
-            disponivel={disponivel}
-            emCorrida={corrida !== null}
-            ocupado={ocupado}
+            disponivel={disponivelExibido}
+            emCorrida={corridaExibida !== null}
+            ocupado={ocupadoExibido}
             onAlternarDisponibilidade={alternarDisponibilidade}
             onAlturaChange={setAlturaMenuInferior}
           />
         </>
       )}
+
+      <SimuladorCorridaMotorista
+        ativa={simuladorCorrida.ativa}
+        etapa={simuladorCorrida.etapa}
+        finalizada={simuladorCorrida.finalizada}
+        bloqueado={corrida !== null || oferta !== null}
+        onIniciar={simuladorCorrida.iniciar}
+        onSelecionarEtapa={simuladorCorrida.selecionarEtapa}
+        onFinalizar={simuladorCorrida.finalizar}
+        onEncerrar={simuladorCorrida.encerrar}
+      />
     </View>
   );
 }

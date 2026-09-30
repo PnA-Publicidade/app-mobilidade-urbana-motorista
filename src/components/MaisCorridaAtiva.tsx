@@ -26,6 +26,8 @@ interface Props {
   destino?: string | null;
   ocupado?: boolean;
   categoria?: string | null;
+  // em viagem o backend não aceita mais cancelamento pelo motorista
+  podeCancelar?: boolean;
   recusarNovas?: boolean;
   onAlternarRecusarNovas?: () => void;
   // no embarque, depois de 3 min de espera (regra do backend), o motorista
@@ -59,6 +61,7 @@ export default function MaisCorridaAtiva({
   destino,
   ocupado = false,
   categoria,
+  podeCancelar = true,
   recusarNovas = false,
   onAlternarRecusarNovas,
   podeRegistrarAusencia = false,
@@ -227,14 +230,16 @@ export default function MaisCorridaAtiva({
               </View>
 
               <View style={styles.acoesCartao}>
-                <TouchableOpacity
-                  style={styles.botaoSecundario}
-                  onPress={() => setTela("motivos")}
-                >
-                  <Text style={styles.botaoSecundarioTexto}>
-                    Cancelar Corrida
-                  </Text>
-                </TouchableOpacity>
+                {podeCancelar && (
+                  <TouchableOpacity
+                    style={styles.botaoSecundario}
+                    onPress={() => setTela("motivos")}
+                  >
+                    <Text style={styles.botaoSecundarioTexto}>
+                      Cancelar Corrida
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={styles.botaoSecundario}
                   onPress={() => setAjudaVisivel(true)}

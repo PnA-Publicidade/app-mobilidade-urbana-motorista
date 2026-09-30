@@ -25,7 +25,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export type AcaoCorrida = "cheguei" | "iniciar" | "finalizar";
+export type AcaoCorrida =
+  | "cheguei"
+  | "iniciar"
+  | "confirmar-parada"
+  | "finalizar";
 
 export interface PassageiroDaCorrida {
   nome: string;

@@ -1,8 +1,9 @@
-// CODEX: 52 linhas alteradas neste arquivo; sincroniza a corrida do motorista e cancela com motivo registrado.
+// CODEX: 33 linhas adicionadas e 11 removidas no diff atual; pausa rede e GPS durante a simulação local. Remover após validação/commit.
 import { api } from "@/Services/api";
 import { obterEcho } from "@/Services/echo";
 import { useToast } from "@/context/ToastContext";
 import { ResumoEspera } from "@/domain/contadorEspera";
+import { proximoPontoDaCorrida } from "@/domain/rotaDaCorrida";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
@@ -31,9 +32,11 @@ export interface CorridaEmCurso {
   status_corrida: string;
   corrida_destinos?: {
     tipo: string;
+    ordem?: number | null;
     endereco: string | null;
     latitude: number | string | null;
     longitude: number | string | null;
+    concluida_em?: string | null;
   }[];
   corrida_financeiro?: {
     metodo_pagamento: string | null;
@@ -69,7 +72,7 @@ const mensagemDoErro = (erro: unknown, padrao: string) => {
   return resposta?.data?.message ?? padrao;
 };
 
-export function useDespachoMotorista() {
+export function useDespachoMotorista(pausado = false) {
   const { mostrarToast } = useToast();
   const [disponivel, setDisponivel] = useState(false);
   const [oferta, setOferta] = useState<OfertaCorrida | null>(null);
@@ -190,6 +193,8 @@ export function useDespachoMotorista() {
   }, [aplicarCorrida]);
 
   useEffect(() => {
+    if (pausado) return;
+
     const sincronizar = async () => {
       await sincronizarSituacao();
       await carregarCorridaAtual();
@@ -205,7 +210,7 @@ export function useDespachoMotorista() {
       clearTimeout(inicio);
       assinatura.remove();
     };
-  }, [sincronizarSituacao, carregarCorridaAtual]);
+  }, [pausado, sincronizarSituacao, carregarCorridaAtual]);
 
   const alternarDisponibilidade = useCallback(
     async (novoEstado: boolean) => {
@@ -299,7 +304,7 @@ export function useDespachoMotorista() {
   }, [corrida, ocupado, alternarDisponibilidade]);
 
   useEffect(() => {
-    if (!appAtivo || !disponivel || corrida !== null) return;
+    if (pausado || !appAtivo || !disponivel || corrida !== null) return;
 
     let cancelado = false;
 
@@ -349,13 +354,13 @@ export function useDespachoMotorista() {
       clearTimeout(buscaInicial);
       clearInterval(relogio);
     };
-  }, [appAtivo, disponivel, corrida, socketAtivo, gatilho]);
+  }, [pausado, appAtivo, disponivel, corrida, socketAtivo, gatilho]);
 
   // WebSocket em cima do polling: avisa que a lista mudou e o hook refaz a
   // consulta (o raio e a autorização seguem no servidor). Sem socket, o
   // intervalo normal de 5s continua valendo.
   useEffect(() => {
-    if (!appAtivo || !disponivel || corrida !== null) {
+    if (pausado || !appAtivo || !disponivel || corrida !== null) {
       return;
     }
 
@@ -385,11 +390,16 @@ export function useDespachoMotorista() {
         }
       };
     } catch {}
-  }, [appAtivo, disponivel, corrida]);
+  }, [pausado, appAtivo, disponivel, corrida]);
 
   const corridaAtivaId = corrida?.id;
   useEffect(() => {
-    if (!appAtivo || (!disponivel && corridaAtivaId === undefined)) return;
+    if (
+      pausado ||
+      !appAtivo ||
+      (!disponivel && corridaAtivaId === undefined)
+    )
+      return;
 
     let cancelado = false;
 
@@ -435,6 +445,7 @@ export function useDespachoMotorista() {
     };
   }, [
     appAtivo,
+    pausado,
     disponivel,
     corridaAtivaId,
     posicaoAtual,
@@ -534,7 +545,7 @@ export function useDespachoMotorista() {
   );
 
   const avancar = useCallback(
-    async (acao: "cheguei" | "iniciar" | "finalizar") => {
+    async (acao: "cheguei" | "iniciar" | "confirmar-parada" | "finalizar") => {
       if (corrida === null) return;
 
       setOcupado(true);
@@ -563,6 +574,13 @@ export function useDespachoMotorista() {
 
         aplicarCorrida(acao === "finalizar" ? null : data, false);
 
+        const proximo =
+          acao === "finalizar" ? null : proximoPontoDaCorrida(data);
+        const rumo =
+          proximo?.tipo === "parada"
+            ? "A rota agora segue para a próxima parada."
+            : "A rota agora segue para o destino.";
+
         const avisos = {
           cheguei: {
             titulo: "Chegada informada",
@@ -570,7 +588,11 @@ export function useDespachoMotorista() {
           },
           iniciar: {
             titulo: "Corrida iniciada",
-            mensagem: "A rota agora segue para o destino.",
+            mensagem: rumo,
+          },
+          "confirmar-parada": {
+            titulo: "Parada confirmada",
+            mensagem: rumo,
           },
           finalizar: {
             titulo: "Corrida finalizada",
@@ -584,7 +606,7 @@ export function useDespachoMotorista() {
         mostrarToast({
           tipo: "success",
           ...aviso,
-          chave: `corrida:${corrida.id}:${acao}`,
+          chave: `corrida:${corrida.id}:${acao}:${proximo?.paradasPendentes ?? 0}`,
         });
 
         if (acao === "finalizar") {
