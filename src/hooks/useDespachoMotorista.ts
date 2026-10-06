@@ -42,7 +42,28 @@ export interface CorridaEmCurso {
     metodo_pagamento: string | null;
   } | null;
   produto?: { id: number; nome: string } | null;
+  metodo_pagamento?: string | null;
 }
+
+// pedido do passageiro para trocar o destino (backend: AlterarCorridaService)
+export interface PedidoNovoDestino {
+  id: number;
+  status: string;
+  // trajeto inteiro pedido (paradas e destino) quando o passageiro editou as paradas
+  paradas?: string[] | null;
+  endereco: string;
+  distancia_km: number;
+  tempo_min: number;
+  valor_motorista: number;
+  valor_motorista_anterior: number | null;
+  expira_em: string | null;
+}
+
+const ROTULO_PAGAMENTO: Record<string, string> = {
+  dinheiro: "dinheiro",
+  pix: "Pix",
+  cartao: "cartão",
+};
 
 export interface PassageiroDaCorrida {
   nome: string;
@@ -81,6 +102,9 @@ export function useDespachoMotorista(pausado = false) {
   const [corrida, setCorrida] = useState<CorridaEmCurso | null>(null);
   const [chegada, setChegada] = useState<ChegadaEstimada | null>(null);
   const [espera, setEspera] = useState<ResumoEspera | null>(null);
+  const [pedidoNovoDestino, setPedidoNovoDestino] =
+    useState<PedidoNovoDestino | null>(null);
+  const [respondendoPedido, setRespondendoPedido] = useState(false);
   const [passageiro, setPassageiro] = useState<PassageiroDaCorrida | null>(
     null,
   );
@@ -116,6 +140,25 @@ export function useDespachoMotorista(pausado = false) {
 
       if (nova !== null) setDisponivel(false);
 
+      // o passageiro pode trocar a forma de pagamento uma vez por corrida
+      if (
+        anterior !== null &&
+        nova !== null &&
+        anterior.id === nova.id &&
+        anterior.metodo_pagamento &&
+        nova.metodo_pagamento &&
+        anterior.metodo_pagamento !== nova.metodo_pagamento
+      ) {
+        const rotulo =
+          ROTULO_PAGAMENTO[nova.metodo_pagamento] ?? nova.metodo_pagamento;
+        mostrarToast({
+          tipo: "info",
+          titulo: "Pagamento alterado",
+          mensagem: `O passageiro trocou para ${rotulo}.`,
+          chave: `pagamento:${nova.id}:${nova.metodo_pagamento}`,
+        });
+      }
+
       corridaRef.current = nova;
       setCorrida((atual) =>
         JSON.stringify(atual) === JSON.stringify(nova) ? atual : nova,
@@ -143,12 +186,20 @@ export function useDespachoMotorista(pausado = false) {
         chegada: ChegadaEstimada | null;
         passageiro: PassageiroDaCorrida | null;
         espera: ResumoEspera | null;
+        alteracao_destino?: PedidoNovoDestino | null;
       }>("/minha-corrida-atual", {
         params: { perfil: "motorista" },
         timeout: 10000,
       });
 
       aplicarCorrida(data?.corrida ?? null);
+      const pedido =
+        data?.alteracao_destino?.status === "pendente"
+          ? data.alteracao_destino
+          : null;
+      setPedidoNovoDestino((anterior) =>
+        JSON.stringify(anterior) === JSON.stringify(pedido) ? anterior : pedido,
+      );
       setChegada((anterior) =>
         JSON.stringify(anterior) === JSON.stringify(data?.chegada ?? null)
           ? anterior
@@ -394,11 +445,7 @@ export function useDespachoMotorista(pausado = false) {
 
   const corridaAtivaId = corrida?.id;
   useEffect(() => {
-    if (
-      pausado ||
-      !appAtivo ||
-      (!disponivel && corridaAtivaId === undefined)
-    )
+    if (pausado || !appAtivo || (!disponivel && corridaAtivaId === undefined))
       return;
 
     let cancelado = false;
@@ -644,6 +691,64 @@ export function useDespachoMotorista(pausado = false) {
     ],
   );
 
+  // canal da própria corrida: pedidos de novo destino e troca de pagamento
+  // chegam na hora, sem esperar a próxima rodada de posição (8s)
+  useEffect(() => {
+    if (pausado || corridaAtivaId === undefined) return;
+
+    const echo = obterEcho();
+    if (echo === null) return;
+
+    try {
+      echo
+        .private(`corrida.${corridaAtivaId}`)
+        .listen(".corrida.atualizada", () => void carregarCorridaAtual());
+
+      return () => {
+        try {
+          echo.leave(`corrida.${corridaAtivaId}`);
+        } catch {
+          /* canal já encerrado */
+        }
+      };
+    } catch {}
+  }, [pausado, corridaAtivaId, carregarCorridaAtual]);
+
+  const responderNovoDestino = useCallback(
+    async (aceitar: boolean) => {
+      if (corrida === null || pedidoNovoDestino === null) return;
+
+      setRespondendoPedido(true);
+      try {
+        await api.post(
+          `/motorista/corridas/${corrida.id}/destino/${pedidoNovoDestino.id}/${aceitar ? "aceitar" : "recusar"}`,
+        );
+        setPedidoNovoDestino(null);
+        mostrarToast({
+          tipo: aceitar ? "success" : "info",
+          titulo: aceitar ? "Novo destino aceito" : "Novo destino recusado",
+          mensagem: aceitar
+            ? "A rota foi atualizada para o novo destino."
+            : "A corrida segue para o destino anterior.",
+          chave: `destino:${pedidoNovoDestino.id}:${aceitar}`,
+        });
+      } catch (falha) {
+        mostrarToast({
+          tipo: "warning",
+          titulo: "O pedido não vale mais",
+          mensagem: mensagemDoErro(
+            falha,
+            "Confira sua conexão e tente novamente.",
+          ),
+        });
+      } finally {
+        await carregarCorridaAtual();
+        setRespondendoPedido(false);
+      }
+    },
+    [corrida, pedidoNovoDestino, mostrarToast, carregarCorridaAtual],
+  );
+
   const cancelarNaoComparecimento =
     useCallback(async (): Promise<ResultadoCancelamento> => {
       if (corrida === null || ocupado) {
@@ -770,5 +875,8 @@ export function useDespachoMotorista(pausado = false) {
     cancelarNaoComparecimento,
     recusarNovas,
     alternarRecusarNovas,
+    pedidoNovoDestino,
+    respondendoPedido,
+    responderNovoDestino,
   };
 }

@@ -3,6 +3,7 @@
 import AvaliarPassageiro from "@/components/AvaliarPassageiro";
 import CorridaEmAndamento from "@/components/CorridaEmAndamento";
 import NavegacaoAtiva from "@/components/NavegacaoAtiva";
+import PedidoNovoDestino from "@/components/PedidoNovoDestino";
 import FolhaInferiorMotorista from "@/components/FolhaInferiorMotorista";
 import GanhoDiario from "@/components/GanhoDiario";
 import Map from "@/components/Map";
@@ -69,6 +70,9 @@ export default function Home() {
     cancelarNaoComparecimento,
     recusarNovas,
     alternarRecusarNovas,
+    pedidoNovoDestino,
+    respondendoPedido,
+    responderNovoDestino,
   } = useDespachoMotorista(simuladorCorrida.ativa);
 
   const dadosSimulados = simuladorCorrida.dados;
@@ -230,17 +234,13 @@ export default function Home() {
       {!statusComNavegacao && (
         <Map
           region={regiaoSimulada ?? region}
-          onRegionChange={
-            simuladorCorrida.ativa ? () => undefined : setRegion
-          }
+          onRegionChange={simuladorCorrida.ativa ? () => undefined : setRegion}
           onUserLocationFound={
             simuladorCorrida.ativa ? undefined : handleUserLocationFound
           }
           bottomSheetIndex={bottomSheetIndex}
           indiceFolhaAnimado={bottomSheetAnimatedIndex}
-          alturaMinimaRodape={
-            corridaExibida === null ? alturaMenuInferior : 0
-          }
+          alturaMinimaRodape={corridaExibida === null ? alturaMenuInferior : 0}
           isGanhoModalVisible={ganhoModalVisivel}
           // já no embarque não há o que traçar: a rota de poucos metros
           // dava a volta no quarteirão por causa da mão da rua
@@ -292,9 +292,7 @@ export default function Home() {
           minutos={chegadaExibida?.minutos ?? null}
           distanciaKm={chegadaExibida?.distancia_km ?? null}
           ocupado={ocupadoExibido}
-          posicaoSimulada={
-            simuladorCorrida.ativa ? posicaoExibida : null
-          }
+          posicaoSimulada={simuladorCorrida.ativa ? posicaoExibida : null}
           rotaSimulada={
             simuladorCorrida.ativa
               ? (dadosSimulados?.rotaNavegacao ?? null)
@@ -304,9 +302,7 @@ export default function Home() {
             simuladorCorrida.ativa ? simuladorCorrida.avancar : avancar
           }
           onCancelar={
-            simuladorCorrida.ativa
-              ? simuladorCorrida.cancelar
-              : cancelarCorrida
+            simuladorCorrida.ativa ? simuladorCorrida.cancelar : cancelarCorrida
           }
         />
       )}
@@ -314,14 +310,11 @@ export default function Home() {
       {corridaExibida?.status_corrida === "motorista_chegou" && (
         <CorridaEmAndamento
           origem={
-            corridaExibida.corrida_destinos?.find(
-              (d) => d.tipo === "origem",
-            )?.endereco
+            corridaExibida.corrida_destinos?.find((d) => d.tipo === "origem")
+              ?.endereco
           }
           destino={
-            corridaExibida.corrida_destinos?.find(
-              (d) => d.tipo === "destino",
-            )
+            corridaExibida.corrida_destinos?.find((d) => d.tipo === "destino")
               ?.endereco
           }
           categoria={corridaExibida.produto?.nome ?? null}
@@ -333,9 +326,7 @@ export default function Home() {
             simuladorCorrida.ativa ? simuladorCorrida.avancar : avancar
           }
           onCancelar={
-            simuladorCorrida.ativa
-              ? simuladorCorrida.cancelar
-              : cancelarCorrida
+            simuladorCorrida.ativa ? simuladorCorrida.cancelar : cancelarCorrida
           }
           onCancelarNaoComparecimento={
             simuladorCorrida.ativa
@@ -351,13 +342,13 @@ export default function Home() {
       {corridaParaAvaliar !== null &&
         corridaExibida === null &&
         !simuladorCorrida.finalizada && (
-        <AvaliarPassageiro
-          corrida={corridaParaAvaliar}
-          enviando={enviandoAvaliacao}
-          onAvaliar={avaliar}
-          onDispensar={dispensarAvaliacao}
-        />
-      )}
+          <AvaliarPassageiro
+            corrida={corridaParaAvaliar}
+            enviando={enviandoAvaliacao}
+            onAvaliar={avaliar}
+            onDispensar={dispensarAvaliacao}
+          />
+        )}
 
       {ofertaExibida !== null && corridaExibida === null && (
         <RecebendoChamada
@@ -452,6 +443,12 @@ export default function Home() {
           />
         </>
       )}
+
+      <PedidoNovoDestino
+        pedido={simuladorCorrida.ativa ? null : pedidoNovoDestino}
+        respondendo={respondendoPedido}
+        onResponder={(aceitar) => void responderNovoDestino(aceitar)}
+      />
 
       <SimuladorCorridaMotorista
         ativa={simuladorCorrida.ativa}
