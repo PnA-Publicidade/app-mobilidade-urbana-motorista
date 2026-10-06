@@ -375,28 +375,29 @@ export default function NavegacaoAtiva({
               {distanciaTexto}
             </Text>
             
-            {status === "em_andamento" && horarioChegada && (
-              <View style={styles.chegadaLinha}>
-                <View style={styles.chegadaPonto} />
-                <Text style={styles.chegadaTexto}>
-                  Chegada prevista:{" "}
-                  <Text style={styles.chegadaHora}>{horarioChegada}</Text>
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {status === "aceita" && horarioChegada && (
-            <View style={styles.avisoLimiteChegada}>
-              <Ionicons name="time-outline" size={16} color="#111" />
-              <Text style={styles.avisoLimiteChegadaTexto}>
-                Chegue antes de:
-                <Text style={styles.avisoLimiteChegadaTextoTempo}>
-                  {` ` + horarioChegada}
-                </Text>
-              </Text>
+            <View style={styles.informacoesChegada}>
+              {status === "em_andamento" && horarioChegada && (
+                <View style={styles.chegadaLinha}>
+                  <View style={styles.chegadaPonto} />
+                  <Text style={styles.chegadaTexto}>
+                    Chegada prevista:{" "}
+                    <Text style={styles.chegadaHora}>{horarioChegada}</Text>
+                  </Text>
+                </View>
+              )}
+              {status === "aceita" && horarioChegada && (
+                <View style={styles.avisoLimiteChegada}>
+                  <Ionicons name="time-outline" size={16} color="#111" />
+                  <Text style={styles.avisoLimiteChegadaTexto}>
+                    Chegue antes de:
+                    <Text style={styles.avisoLimiteChegadaTextoTempo}>
+                      {` ` + horarioChegada}
+                    </Text>
+                  </Text>
+                </View>
+              )}
             </View>
-          )}
+          </View>
 
           <TouchableOpacity
             style={styles.botaoMenuCorrida}
@@ -1015,6 +1016,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     textAlign: "center",
+  },
+  informacoesChegada: {
+    flexDirection: "column",
+    alignItems: "center",
   },
   chegadaLinha: { alignItems: "center" },
   chegadaPonto: {
