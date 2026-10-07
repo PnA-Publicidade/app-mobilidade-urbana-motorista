@@ -21,6 +21,7 @@ export interface OfertaCorrida {
   origem: string;
   destino: string | null;
   paradas: number;
+  para_outra_pessoa?: boolean;
   passageiro_nota: number | null;
   passageiro_corridas: number;
   recusada_localmente?: boolean;
@@ -67,6 +68,8 @@ const ROTULO_PAGAMENTO: Record<string, string> = {
 
 export interface PassageiroDaCorrida {
   nome: string;
+  // quem pediu, quando a corrida é para outra pessoa
+  solicitante?: string | null;
   foto: string | null;
   foto_oculta?: boolean;
   telefone: string | null;
@@ -570,7 +573,12 @@ export function useDespachoMotorista(pausado = false) {
   const recusar = useCallback(
     (corridaId?: number) => {
       const id = corridaId ?? oferta?.corrida_id;
-      if (id !== undefined) recusadas.current.add(id);
+      if (id !== undefined) {
+        recusadas.current.add(id);
+        void api
+          .post(`/motorista/corridas/${id}/recusar`)
+          .catch(() => undefined);
+      }
 
       const atualizadas = ofertas.map((item) =>
         item.corrida_id === id ? { ...item, recusada_localmente: true } : item,

@@ -1,8 +1,13 @@
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Text } from "@/components/common/Texto";
 import { api } from "@/Services/api";
+import {
+  carregarMetodosResgate,
+  formatarReais,
+  MetodoResgate,
+} from "@/domain/carteira";
 import {
   Animated,
   BackHandler,
@@ -79,24 +84,30 @@ export default function CentralGanhos({
     return () => subscription.remove();
   }, [visible, onClose]);
 
-  useEffect(() => {
-    if (!visible) return;
-    let ativo = true;
+  const [metodoPrincipal, setMetodoPrincipal] = useState<MetodoResgate | null>(
+    null,
+  );
+
+  // de novo ao voltar do saldo ou dos métodos: um saque ou um método novo
+  // muda o que aparece aqui
+  const recarregar = useCallback(() => {
     api
       .get<{ data: string; ganhos_do_dia: number; saldo: number }>(
         "/motorista/me/ganhos",
       )
-      .then(({ data }) => {
-        if (ativo) setGanhos(data);
-      })
+      .then(({ data }) => setGanhos(data))
       .catch(() => {});
-    return () => {
-      ativo = false;
-    };
-  }, [visible]);
+    carregarMetodosResgate()
+      .then((metodos) =>
+        setMetodoPrincipal(metodos.find((metodo) => metodo.principal) ?? null),
+      )
+      .catch(() => {});
+  }, []);
 
-  const formatarReais = (valor: number | undefined) =>
-    valor === undefined ? "—" : `R$${valor.toFixed(2).replace(".", ",")}`;
+  useEffect(() => {
+    if (visible) recarregar();
+  }, [visible, recarregar]);
+
 
   useEffect(() => {
     if (visible) {
@@ -220,7 +231,11 @@ export default function CentralGanhos({
                   </View>
                   <View>
                     <Text style={styles.resourceName}>Método de resgate</Text>
-                    <Text style={styles.resourceSubtext}>Conta bancária</Text>
+                    <Text style={styles.resourceSubtext} numberOfLines={1}>
+                      {metodoPrincipal
+                        ? metodoPrincipal.descricao
+                        : "Adicione uma chave Pix ou conta"}
+                    </Text>
                   </View>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#CCC" />
@@ -290,10 +305,19 @@ export default function CentralGanhos({
         visible={historicoCorridas}
         onClose={() => setHistoricoCorridas(false)}
       />
-      <MeuSaldo visible={meuSaldo} onClose={() => setMeuSaldo(false)} />
+      <MeuSaldo
+        visible={meuSaldo}
+        onClose={() => {
+          setMeuSaldo(false);
+          recarregar();
+        }}
+      />
       <MetodosResgate
         visible={visibleMetodoResgate}
-        onClose={() => setVisibleMetodoResgate(false)}
+        onClose={() => {
+          setVisibleMetodoResgate(false);
+          recarregar();
+        }}
       />
       <ConvidarMotorista
         visible={visibleConvidadeMotorista}
