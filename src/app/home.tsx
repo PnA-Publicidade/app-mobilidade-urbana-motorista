@@ -115,6 +115,9 @@ export default function Home() {
   // menu e do atalho de ganhos
   const esperandoNoEmbarque =
     corridaExibida?.status_corrida === "motorista_chegou";
+  const embarqueDaCorrida =
+    corridaExibida?.corrida_destinos?.find((ponto) => ponto.tipo === "origem")
+      ?.endereco ?? null;
   const proximoPonto = proximoPontoDaCorrida(corridaExibida);
   const { rota: rotaDaCorrida, alvo: alvoDaCorrida } = useRotaDaCorrida(
     statusComNavegacao || simuladorCorrida.ativa ? null : corridaExibida,
@@ -359,6 +362,7 @@ export default function Home() {
           origem={ofertaExibida.origem}
           destino={ofertaExibida.destino}
           paradas={ofertaExibida.paradas}
+          paraOutraPessoa={ofertaExibida.para_outra_pessoa}
           notaPassageiro={ofertaExibida.passageiro_nota}
           corridasPassageiro={ofertaExibida.passageiro_corridas}
           onAceitar={
@@ -446,6 +450,12 @@ export default function Home() {
 
       <PedidoNovoDestino
         pedido={simuladorCorrida.ativa ? null : pedidoNovoDestino}
+        origem={embarqueDaCorrida}
+        paradasFeitas={
+          corridaExibida?.corrida_destinos?.filter(
+            (ponto) => ponto.tipo === "parada" && ponto.concluida_em,
+          ).length ?? 0
+        }
         respondendo={respondendoPedido}
         onResponder={(aceitar) => void responderNovoDestino(aceitar)}
       />

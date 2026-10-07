@@ -33,6 +33,7 @@ export type AcaoCorrida =
 
 export interface PassageiroDaCorrida {
   nome: string;
+  solicitante?: string | null;
   foto?: string | null;
   foto_oculta?: boolean;
   telefone?: string | null;
@@ -265,6 +266,11 @@ export default function CorridaEmAndamento({
                   <Ionicons name="chevron-forward" size={16} color="#666" />
                 </View>
                 <Text style={styles.passageiroApoio}>{reputacao}</Text>
+                {passageiro?.solicitante ? (
+                  <Text numberOfLines={1} style={styles.passageiroApoio}>
+                    Pedido por {passageiro.solicitante}
+                  </Text>
+                ) : null}
               </TouchableOpacity>
 
               {passageiro?.telefone ? (

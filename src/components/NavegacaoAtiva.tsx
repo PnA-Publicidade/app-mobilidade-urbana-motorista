@@ -30,6 +30,7 @@ import { useCarregamentoMapa } from "@/hooks/useCarregamentoMapa";
 import type { ResultadoCancelamento } from "@/hooks/useDespachoMotorista";
 import { useNavegacaoDaCorrida } from "@/hooks/useNavegacaoDaCorrida";
 import { Feather, Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -48,7 +49,6 @@ import MapView, {
   Marker,
   Polyline,
   PROVIDER_GOOGLE,
-  UserLocationChangeEvent,
 } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -248,10 +248,8 @@ export default function NavegacaoAtiva({
     }
   }, [alvo, centralizarNavegacao, aoPronto, posicaoSimulada]);
 
-  const onUserLocationChange = useCallback(
-    (event: UserLocationChangeEvent) => {
-      const { coordinate } = event.nativeEvent;
-      if (!coordinate) return;
+  const atualizarPosicaoReal = useCallback(
+    (coordinate: Location.LocationObjectCoords) => {
 
       const nova = {
         latitude: coordinate.latitude,
@@ -285,6 +283,47 @@ export default function NavegacaoAtiva({
     },
     [aoCarregar, centralizarNavegacao],
   );
+
+  useEffect(() => {
+    if (posicaoSimulada) return;
+
+    let montado = true;
+    let assinatura: Location.LocationSubscription | null = null;
+
+    const iniciarAcompanhamento = async () => {
+      try {
+        const permissao = await Location.requestForegroundPermissionsAsync();
+        if (!montado || permissao.status !== "granted") return;
+
+        const ultima = await Location.getLastKnownPositionAsync({
+          maxAge: 60_000,
+          requiredAccuracy: 500,
+        });
+        if (ultima && montado) atualizarPosicaoReal(ultima.coords);
+
+        assinatura = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 3_000,
+            distanceInterval: 5,
+          },
+          (localizacao) => {
+            if (montado) atualizarPosicaoReal(localizacao.coords);
+          },
+        );
+      } catch {
+        // O mapa continua utilizável; a tela já mostra o aviso de carregamento
+        // se não houver uma posição disponível para centralizar.
+      }
+    };
+
+    void iniciarAcompanhamento();
+
+    return () => {
+      montado = false;
+      assinatura?.remove();
+    };
+  }, [atualizarPosicaoReal, posicaoSimulada]);
 
   const polylineRestante = useMemo(
     () => trecoRestante(rota?.polyline ?? [], posicao),
@@ -444,14 +483,14 @@ export default function NavegacaoAtiva({
         }
         userInterfaceStyle="light"
         showsCompass={false}
-        showsUserLocation={posicaoSimulada === null}
+        // Não usar showsUserLocation/onUserLocationChange: em Android/Fabric
+        // o Maps pode emitir topUserLocationChange, evento não registrado pelo
+        // Expo Go. A localização é acompanhada pelo expo-location acima.
+        showsUserLocation={false}
         followsUserLocation={false}
         showsMyLocationButton={false}
         onMapReady={onMapReady}
         onMapLoaded={aoCarregar}
-        onUserLocationChange={
-          posicaoSimulada === null ? onUserLocationChange : undefined
-        }
       >
         {polylineRestante.length > 1 && (
           <Polyline
@@ -474,10 +513,13 @@ export default function NavegacaoAtiva({
             </View>
           </Marker>
         )}
-        {posicaoSimulada && (
+        {posicao && (
           <Marker
-            coordinate={posicaoSimulada}
+            coordinate={posicao}
             anchor={{ x: 0.5, y: 0.5 }}
+            flat
+            rotation={ultimoHeading.current}
+            tracksViewChanges={false}
           >
             <View style={styles.marcadorMotoristaSimulado}>
               <Ionicons name="navigate" size={17} color="#FFFFFF" />
@@ -668,6 +710,9 @@ export default function NavegacaoAtiva({
               </Text>
               <Text style={styles.passageiroApoio}>
                 {reputacaoPassageiro(passageiro?.nota, passageiro?.corridas)}
+                {passageiro?.solicitante
+                  ? ` · Pedido por ${passageiro.solicitante}`
+                  : ""}
               </Text>
             </View>
 

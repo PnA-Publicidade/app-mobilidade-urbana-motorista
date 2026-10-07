@@ -24,7 +24,6 @@ import MapView, {
   Polyline,
   PROVIDER_GOOGLE,
   Region,
-  UserLocationChangeEvent,
 } from "react-native-maps";
 import Animated, {
   Extrapolation,
@@ -188,8 +187,9 @@ export default function Map({
       .catch(() => {});
   }, []);
 
-  // Primeira posição real vem de quem responder antes: expo-location ou a
-  // camada "minha localização" do próprio Google Maps (onUserLocationChange).
+  // A posição do motorista vem apenas do expo-location. Evitar o listener
+  // nativo do mapa impede o evento topUserLocationChange incompatível com
+  // React Fabric em parte dos Androids.
   const registrarPosicao = useCallback(
     (coords: { latitude: number; longitude: number }) => {
       if (!pontoMapaValido(coords)) return;
@@ -225,6 +225,7 @@ export default function Map({
 
   useEffect(() => {
     let montado = true;
+    let assinatura: Location.LocationSubscription | null = null;
 
     (async () => {
       try {
@@ -243,6 +244,17 @@ export default function Map({
         setBuscandoPosicao(true);
         const posicao = await obterPosicaoAtual();
         if (montado) registrarPosicao(posicao.coords);
+
+        assinatura = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 8_000,
+            distanceInterval: 20,
+          },
+          (novaPosicao) => {
+            if (montado) registrarPosicao(novaPosicao.coords);
+          },
+        );
       } catch (erro) {
         if (!montado || temPosicaoReal.current) return;
 
@@ -258,6 +270,7 @@ export default function Map({
 
     return () => {
       montado = false;
+      assinatura?.remove();
     };
   }, [obterPosicaoAtual, registrarPosicao, tentativaLocalizacao]);
 
@@ -275,11 +288,6 @@ export default function Map({
     });
     return () => assinatura.remove();
   }, [permissao, localizacaoIndisponivel]);
-
-  const handleUserLocationChange = (event: UserLocationChangeEvent) => {
-    const { coordinate } = event.nativeEvent;
-    if (coordinate) registrarPosicao(coordinate);
-  };
 
   const ativarLocalizacao = async () => {
     if (Platform.OS === "android") {
@@ -356,9 +364,8 @@ export default function Map({
         onRegionChangeComplete={(regiao) => {
           onRegionChange(regiao);
         }}
-        showsUserLocation={permissao === "concedida"}
+        showsUserLocation={false}
         showsMyLocationButton={false}
-        onUserLocationChange={handleUserLocationChange}
         followsUserLocation={false}
         mapType="standard"
         userInterfaceStyle="light"
@@ -366,6 +373,19 @@ export default function Map({
         onMapReady={mapaPronto}
         onMapLoaded={mapaCarregado}
       >
+        {userLocation && (
+          <Marker
+            coordinate={userLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+            zIndex={20}
+          >
+            <View style={styles.marcadorMinhaLocalizacao}>
+              <View style={styles.marcadorMinhaLocalizacaoCentro} />
+            </View>
+          </Marker>
+        )}
+
         {rota.length > 1 && (
           <Polyline
             key={chaveRota}
@@ -529,5 +549,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  marcadorMinhaLocalizacao: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(47, 107, 255, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(47, 107, 255, 0.35)",
+  },
+  marcadorMinhaLocalizacaoCentro: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#2F6BFF",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
 });

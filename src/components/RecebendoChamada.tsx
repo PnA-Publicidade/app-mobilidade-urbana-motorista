@@ -20,6 +20,7 @@ interface RecebendoChamadaProps {
   origem?: string;
   destino?: string | null;
   paradas?: number;
+  paraOutraPessoa?: boolean;
   notaPassageiro?: number | null;
   corridasPassageiro?: number;
 }
@@ -150,6 +151,7 @@ export default function RecebendoChamadas({
   origem,
   destino,
   paradas = 0,
+  paraOutraPessoa = false,
   notaPassageiro,
   corridasPassageiro = 0,
 }: RecebendoChamadaProps) {
@@ -366,6 +368,11 @@ export default function RecebendoChamadas({
           <Text className="ml-8" style={styles.infoText}>
             {enderecoDestino}
           </Text>
+          {paraOutraPessoa && (
+            <Text className="ml-8" style={styles.paraOutraPessoa}>
+              Corrida para outra pessoa
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
@@ -484,6 +491,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     lineHeight: 20,
+  },
+  paraOutraPessoa: {
+    color: "#FBC02D",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 6,
   },
   btnAceitar: {
     backgroundColor: "#fbc02d",
